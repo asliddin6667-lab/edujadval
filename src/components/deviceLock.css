@@ -1,0 +1,144 @@
+/* ============================================================
+   EDUJADVAL.UZ — Qurilma qulflash UI uslublari
+   Mavjud auth.css glassmorphism dizayniga mos.
+   ============================================================ */
+
+/* --- To'lov sahifasidagi ogohlantirish --- */
+.device-policy-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin: 14px 0;
+  border-radius: 12px;
+  background: rgba(255, 165, 0, 0.10);
+  border: 1px solid rgba(255, 165, 0, 0.35);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.device-policy-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.device-policy-text strong {
+  color: #d97706;
+}
+
+/* --- Qulflangan ekran --- */
+.device-locked-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.device-locked-card {
+  max-width: 440px;
+  width: 100%;
+  padding: 28px 26px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  text-align: center;
+}
+
+.device-locked-icon {
+  font-size: 2.4rem;
+  margin-bottom: 8px;
+}
+
+.device-locked-card h2 {
+  margin: 0 0 12px;
+  font-size: 1.25rem;
+  color: #1e293b;
+}
+
+.device-locked-card p {
+  margin: 0 0 10px;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: #475569;
+}
+
+.device-locked-info {
+  margin: 16px 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  font-size: 0.9rem;
+  color: #1e293b;
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+
+.device-locked-label {
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.device-locked-info code {
+  background: rgba(37, 99, 235, 0.12);
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.device-locked-back {
+  margin-top: 6px;
+  padding: 10px 22px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.device-locked-back:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(34, 197, 94, 0.35);
+}
+
+/* --- Dark mode --- */
+.dark .device-policy-notice,
+[data-theme='dark'] .device-policy-notice {
+  background: rgba(255, 165, 0, 0.12);
+  border-color: rgba(255, 165, 0, 0.3);
+  color: #e2e8f0;
+}
+
+.dark .device-locked-card,
+[data-theme='dark'] .device-locked-card {
+  background: rgba(30, 41, 59, 0.95);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark .device-locked-card h2,
+[data-theme='dark'] .device-locked-card h2 {
+  color: #f1f5f9;
+}
+
+.dark .device-locked-card p,
+[data-theme='dark'] .device-locked-card p {
+  color: #cbd5e1;
+}
+
+.dark .device-locked-info,
+[data-theme='dark'] .device-locked-info {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #e2e8f0;
+}
