@@ -1,19 +1,29 @@
 import { useState } from "react";
 import ConfirmModal from "../components/ConfirmModal";
 
-export default function SettingsPage({ settings, setSettings, classes, subjects, teachers, rooms, timeslots, lunchGroups, schedule, classSubjects, setClasses, setSubjects, setTeachers, setRooms, setTimeslots, setLunchGroups, setSchedule, setClassSubjects, toast, darkMode, setDarkMode }) {
+export default function SettingsPage({ settings, setSettings, classes, subjects, teachers, rooms, timeslots, lunchGroups, shifts, schedule, classSubjects, setClasses, setSubjects, setTeachers, setRooms, setTimeslots, setLunchGroups, setShifts, setSchedule, setClassSubjects, toast, darkMode, setDarkMode }) {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   function handleExport() {
-    const data = { settings, classes, subjects, teachers, rooms, timeslots, lunchGroups, classSubjects, schedule };
+    const data = {
+      _meta: {
+        app: "edujadval",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+      },
+      settings, classes, subjects, teachers, rooms, timeslots,
+      lunchGroups, shifts: shifts || [], classSubjects, schedule,
+    };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `edujadval_${Date.now()}.json`;
+    // Sana bilan o'qiladigan fayl nomi: edujadval-zaxira-2026-07-23.json
+    const sana = new Date().toISOString().slice(0, 10);
+    a.download = `edujadval-zaxira-${sana}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast("Ma'lumotlar eksport qilindi ✓", "success");
+    toast("Zaxira nusxa yuklab olindi ✓", "success");
   }
 
   function handleImport(e) {
@@ -29,10 +39,11 @@ export default function SettingsPage({ settings, setSettings, classes, subjects,
         if (data.rooms) setRooms(data.rooms);
         if (data.timeslots) setTimeslots(data.timeslots);
         if (data.lunchGroups) setLunchGroups(data.lunchGroups);
+        if (data.shifts && setShifts) setShifts(data.shifts);
         if (data.classSubjects) setClassSubjects(data.classSubjects);
         if (data.schedule) setSchedule(data.schedule);
         if (data.settings) setSettings(data.settings);
-        toast("Ma'lumotlar import qilindi ✓", "success");
+        toast("Zaxiradan ma'lumotlar tiklandi ✓", "success");
       } catch {
         toast("JSON fayl xato!", "error");
       }
@@ -48,6 +59,7 @@ export default function SettingsPage({ settings, setSettings, classes, subjects,
     setRooms([]);
     setTimeslots([]);
     setLunchGroups([]);
+    if (setShifts) setShifts([]);
     setClassSubjects({});
     setSchedule({});
     setShowClearConfirm(false);
@@ -106,18 +118,18 @@ export default function SettingsPage({ settings, setSettings, classes, subjects,
               <div className="settings-section-title">Ma'lumotlar</div>
               <div className="settings-row">
                 <div>
-                  <div className="settings-row-label">Export JSON</div>
-                  <div className="settings-row-desc">Barcha ma'lumotlarni JSON faylga saqlash</div>
+                  <div className="settings-row-label">Zaxira nusxa (Export)</div>
+                  <div className="settings-row-desc">Barcha ma'lumotlarni JSON faylga yuklab olish</div>
                 </div>
-                <button className="btn btn-secondary" onClick={handleExport}>⬇️ Export</button>
+                <button className="btn btn-secondary" onClick={handleExport}>⬇️ Zaxiralash</button>
               </div>
               <div className="settings-row">
                 <div>
-                  <div className="settings-row-label">Import JSON</div>
-                  <div className="settings-row-desc">JSON fayldan ma'lumotlarni yuklash</div>
+                  <div className="settings-row-label">Zaxiradan tiklash (Import)</div>
+                  <div className="settings-row-desc">Yuklab olingan JSON fayldan ma'lumotlarni qaytarish</div>
                 </div>
                 <label className="btn btn-secondary" style={{ cursor: "pointer" }}>
-                  ⬆️ Import
+                  ⬆️ Tiklash
                   <input type="file" accept=".json" onChange={handleImport} style={{ display: "none" }} />
                 </label>
               </div>

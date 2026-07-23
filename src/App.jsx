@@ -50,6 +50,22 @@ export default function App() {
   const { toasts, addToast } = useToast();
   const userId = currentUser?.id;
 
+  // ——— Doimiy saqlash (persistent storage) ———
+  // Brauzerga "bu saytning ma'lumotlarini joy bo'shatish uchun
+  // avtomatik o'chirma" degan so'rov yuboriladi. localStorage'dagi
+  // jadval ma'lumotlari eviction'dan himoyalanadi.
+  useEffect(() => {
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().then((granted) => {
+        console.log(
+          granted
+            ? "✅ Doimiy saqlash yoqildi — brauzer ma'lumotlarni avtomatik o'chirmaydi"
+            : "⚠️ Doimiy saqlash hozircha berilmadi — saytdan ko'proq foydalanilsa, brauzer keyinroq ruxsat beradi"
+        );
+      }).catch(() => {});
+    }
+  }, []);
+
   // Yuklanganda profil serverdan yangilanadi:
   // - obuna faollashtirilgan bo'lsa — darhol ochiladi
   // - sessiya tugagan/bloklangan bo'lsa — login sahifasiga qaytadi
@@ -231,7 +247,7 @@ export default function App() {
           setTeachers={setTeachers} setRooms={setRooms}
           setTimeslots={setTimeslots} setSchedule={setSchedule}
           setClassSubjects={setClassSubjects} setLunchGroups={setLunchGroups}
-          setShifts={setShifts}
+          shifts={shifts} setShifts={setShifts}
           {...pageProps}
         />
       );
