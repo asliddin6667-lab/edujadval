@@ -3,9 +3,10 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  // Custom domen (edujadval.uz) ulangani uchun '/' — sub-path emas.
-  // Agar domensiz GitHub Pages'ga qaytsangiz: '/edujadval/' qiling.
-  base: '/',
+  // GitHub Pages sub-path rejimi: asliddin6667-lab.github.io/edujadval/
+  // KELAJAKDA custom domen (edujadval.uz) ulasangiz: base: '/' qiling
+  // va public/CNAME faylini qayta yarating (ichida: edujadval.uz)
+  base: '/edujadval/',
   server: {
     port: 5175,
     strictPort: true,
