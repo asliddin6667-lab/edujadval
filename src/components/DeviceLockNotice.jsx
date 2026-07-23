@@ -41,7 +41,15 @@ export function DeviceLockedScreen({ userId, deviceName, onBack }) {
         <div className="device-locked-info">
           <div>
             <span className="device-locked-label">Admin:</span>{' '}
-            Asliddin_Muhiddinovich
+            <a
+              href="https://t.me/+998941366667"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#4f46e5', fontWeight: 700, textDecoration: 'underline' }}
+              title="Telegram orqali bog'lanish"
+            >
+              Asliddin_Muhiddinovich ✈️
+            </a>
           </div>
           {userId && (
             <div>
