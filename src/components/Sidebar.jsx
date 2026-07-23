@@ -8,7 +8,7 @@ const NAV_ITEMS = [
   { id: "classSubjects", label: "Sinf fanlari", icon: "🧩" },
   { id: "rooms", label: "Xonalar", icon: "🚪" },
   { id: "timeslots", label: "Dars vaqtlari", icon: "⏰" },
-  { id: "lunchGroups", label: "Obed guruhlari", icon: "🍽️" },
+  { id: "lunchGroups", label: "Dam olish vaqtlari", icon: "🌴" },
   { id: "schedule", label: "Dars jadvali", icon: "🗓️" },
   { id: "teacherReplace", label: "Ustoz almashtirish", icon: "🔄" },
   { id: "analytics", label: "Jadval tahlili", icon: "📈" },
