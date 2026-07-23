@@ -57,6 +57,16 @@ export function DeviceLockedScreen({ userId, deviceName, onBack }) {
               <code>{userId}</code>
             </div>
           )}
+          <div>
+            <span className="device-locked-label">Murojaat uchun:</span>{' '}
+            <a
+              href="tel:+998941366667"
+              style={{ color: '#4f46e5', fontWeight: 700, textDecoration: 'none' }}
+              title="Qo'ng'iroq qilish"
+            >
+              +998 94 136 66 67
+            </a>
+          </div>
         </div>
         {onBack && (
           <button type="button" className="device-locked-back" onClick={onBack}>
