@@ -302,6 +302,7 @@ function attemptSchedule(
   const rng = mulberry32((options.seed ?? 1) >>> 0);
   const deadline = options.deadline || Date.now() + 8000;
   const polishBudgetMs = options.polishBudgetMs ?? 450;
+  const compactBudgetMs = options.compactBudgetMs ?? 2600;
   const schedule = emptySchedule(timeslots);
   if (!classes.length || !subjects.length || !teachers.length || !timeslots.length) {
     return { schedule, placed: 0, attempted: 0, soft: 0, report: null };
@@ -389,6 +390,44 @@ function attemptSchedule(
     if (ci === undefined || si === undefined) return 0;
     return placedKeyCount.get(ci * S + si) || 0;
   }
+  // ——— Kunlik me'yor: sinfning haftalik soati ish kunlariga teng bo'linadi ———
+  // 24 soat / 6 kun => kuniga aynan 4 ta. 22 soat / 6 kun => 4-4-4-4-3-3.
+  // Bu me'yor ham joylashtirishda, ham zichlashda ishlatiladi.
+  const balLo = new Int16Array(C);
+  const balHi = new Int16Array(C);
+  const dayUsable = new Uint8Array(C * D);
+  const usableDayCount = new Int16Array(C);
+  for (let ci = 0; ci < C; ci++) {
+    let ud = 0;
+    for (let d = 0; d < D; d++) {
+      let cap = 0;
+      const cBase = ci * DT + d * T;
+      if (!classOffMask[ci * D + d]) {
+        for (let k = 0; k < T; k++) if (!lunchGrid[cBase + k] && !slotClassBlock[cBase + k]) cap += 1;
+      }
+      if (cap > 0) { dayUsable[ci * D + d] = 1; ud += 1; }
+    }
+    usableDayCount[ci] = ud;
+  }
+  function setBalanceTargets(totalsOf) {
+    for (let ci = 0; ci < C; ci++) {
+      const ud = usableDayCount[ci];
+      if (!ud) { balLo[ci] = 0; balHi[ci] = 0; continue; }
+      const total = totalsOf(ci);
+      const base = Math.floor(total / ud);
+      balLo[ci] = base;
+      balHi[ci] = total - base * ud > 0 ? base + 1 : base;
+    }
+  }
+  // Boshlang'ich me'yor — biriktirilgan haftalik soatlar bo'yicha
+  const classNeed = new Int16Array(C);
+  classes.forEach((c, ci) => {
+    let n = 0;
+    (classSubjects[c.id] || []).forEach((a) => { n += Number(a?.weeklyHours || 0); });
+    classNeed[ci] = n;
+  });
+  setBalanceTargets((ci) => classNeed[ci]);
+
   const placements = [];
   const entryToPlacement = new Map();
   const LOCKED = { locked: true };
@@ -872,11 +911,17 @@ function attemptSchedule(
     const spreadPenalty = Math.abs((d % 2) - (blockSize === 2 ? 0 : 1));
     let classLoadPenalty = 0;
     for (const ci of req.cIdxs) { classLoadPenalty += classDayCount[ci * D + d]; }
+    // Kunlik me'yordan oshib ketmasin — darslar kunlarga teng tarqalsin
+    let dayCapPenalty = 0;
+    for (const ci of req.cIdxs) {
+      const n = classDayCount[ci * D + d] + blockSize;
+      if (n > balHi[ci]) dayCapPenalty += (n - balHi[ci]) * DAYCAP_W;
+    }
     let teacherPenalty = 0;
     for (const ti of req.tIdxs) { teacherPenalty += teacherLoadArr[ti] + teacherDailyArr[ti * D + d]; }
     const coreEarlyPenalty = req.isCore ? i * 60 : 0;
     const randomPenalty = rng() * 5;
-    return compactPenalty + repeatPenalty + classLoadPenalty + teacherPenalty + spreadPenalty + coreEarlyPenalty + adjacencyPenalty + randomPenalty;
+    return compactPenalty + repeatPenalty + classLoadPenalty + teacherPenalty + spreadPenalty + coreEarlyPenalty + adjacencyPenalty + dayCapPenalty + randomPenalty;
   }
   function bestCandidate(req, withForwardCheck) {
     let best = null;
@@ -889,6 +934,7 @@ function attemptSchedule(
     }
     return best;
   }
+  const DAYCAP_W = 800;
   const EJECT_DEFAULT = { maxDepth: 3, blockersRoot: 3, blockersDeep: 2, tryRoot: 14, tryDeep: 6 };
   const EJECT_INTENSE = { maxDepth: 4, blockersRoot: 5, blockersDeep: 3, tryRoot: 28, tryDeep: 10 };
   function collectBlockers(req, d, i, frozen, maxBlockers) {
@@ -1139,6 +1185,344 @@ function attemptSchedule(
   if (placedHours >= attemptedHours && attemptedHours > 0 && polishBudgetMs > 0) {
     polish(Math.min(polishBudgetMs, Math.max(0, deadline - Date.now())));
   }
+  // ——— ZICHLASH (compaction) ———
+  // Darslarni kun boshiga tortadi (tepada bo'sh dars qolmasin), kun ichidagi
+  // "oyna"larni yopadi va yukni kunlar bo'yicha tenglashtiradi.
+  // Hech qanday cheklov buzilmaydi: ustoz/xona/sinf bandligi, obed, smena
+  // (timeslot.classIds), dam kunlari va blok (juft) darslar butunligicha ko'chadi.
+  // Qo'lda qulflangan (manual) darslar joyida qoladi.
+  const GAP_W = 1000;    // kun boshidagi/oradagi har bir bo'sh dars jarimasi (ustuvor)
+  const BAL_W = 900;      // kunlik me'yordan chetlanish jarimasi
+  const REPEAT_W = 45;   // bitta kunda bitta fanning takrorlanishi
+  const ADJ_W = 260;     // yonma-yon bir xil fan (bir soatlik darslar uchun)
+
+  // Umumiy narx. Oynalar soni alohida _lastGap ga yoziladi — oyna hech qachon
+  // ko'paymasligi shart (balans yutug'i oyna evaziga bo'lmasin).
+  let _lastGap = 0;
+  function compactCost(cIdxs) {
+    let cost = 0;
+    let gaps = 0;
+    for (const ci of cIdxs) {
+      for (let d = 0; d < D; d++) {
+        const cBase = ci * DT + d * T;
+        let free = 0;
+        let head = 0;
+        for (let k = 0; k < T; k++) {
+          if (lunchGrid[cBase + k] || slotClassBlock[cBase + k]) continue;
+          if (classGrid[cBase + k]) head += free;
+          else free += 1;
+        }
+        gaps += head;
+        if (dayUsable[ci * D + d]) {
+          const n = classDayCount[ci * D + d];
+          const dev = n > balHi[ci] ? n - balHi[ci] : (n < balLo[ci] ? balLo[ci] - n : 0);
+          cost += dev * dev * BAL_W;
+        }
+      }
+    }
+    _lastGap = gaps;
+    return cost;
+  }
+
+  // Grid bitlarini vaqtincha yoqadi/o'chiradi (jadval massivlariga tegmaydi)
+  function markBits(req, d, i, val) {
+    const base = d * T + i;
+    for (let o = 0; o < req.blockSize; o++) {
+      const off = base + o;
+      for (const ci of req.cIdxs) classGrid[ci * DT + off] = val;
+      for (const ti of req.tIdxs) teacherGrid[ti * DT + off] = val;
+      for (const rg of req.roomArrs) rg[off] = val;
+    }
+    const delta = val ? req.blockSize : -req.blockSize;
+    for (const ci of req.cIdxs) classDayCount[ci * D + d] += delta;
+  }
+
+  // Shu fan tanlangan kunda necha marta bor (o'z hissasini chiqarib tashlaydi)
+  function repeatCostAt(req, dd, oldD) {
+    let c = 0;
+    for (const ci of req.cIdxs) {
+      let n = classDailySubj[(ci * D + dd) * S + req.sIdx];
+      if (dd === oldD) n -= req.blockSize;
+      if (n > 0) c += n * REPEAT_W;
+    }
+    return c;
+  }
+
+  function compactPass(budgetMs) {
+    if (!placements.length) return 0;
+    const stop = Date.now() + Math.max(120, budgetMs);
+    let totalMoved = 0;
+    let round = 0;
+    let moved = 1;
+    while (moved > 0 && round < 12 && Date.now() < stop) {
+      round += 1;
+      moved = 0;
+      const list = shuffle(placements.filter((p) => !p.locked), rng);
+      for (const p of list) {
+        if (Date.now() > stop) break;
+        const req = p.req;
+        if (!p.active || req.placedRef !== p) continue;
+        if (!req.domain || req.domain.length < 2) continue;
+        const oldD = p.d;
+        const oldI = p.startIdx;
+        const baseCost = compactCost(req.cIdxs) + repeatCostAt(req, oldD, oldD);
+        const baseGap = _lastGap;
+        markBits(req, oldD, oldI, 0);
+        let bestD = -1;
+        let bestI = -1;
+        let bestCost = baseCost;
+        let bestGap = baseGap;
+        for (const cand of req.domain) {
+          if (cand.d === oldD && cand.i === oldI) continue;
+          if (!fitsAt(req, cand.d, cand.i)) continue;
+          markBits(req, cand.d, cand.i, 1);
+          let c = compactCost(req.cIdxs) + repeatCostAt(req, cand.d, oldD);
+          const g = _lastGap;
+          markBits(req, cand.d, cand.i, 0);
+          if (req.blockSize === 1 && adjacentSame(cand.d, cand.i, 1, req)) c += ADJ_W;
+          if (g < bestGap || (g === bestGap && c < bestCost)) { bestGap = g; bestCost = c; bestD = cand.d; bestI = cand.i; }
+        }
+        markBits(req, oldD, oldI, 1);
+        if (bestD >= 0) {
+          unplace(p);
+          place(req, bestD, bestI);
+          moved += 1;
+        }
+      }
+      totalMoved += moved;
+    }
+    return totalMoved;
+  }
+
+  // Bitta to'siq darsni topadi (ko'proq bo'lsa — almashtirishga yaramaydi)
+  function singleBlockerAt(req, d, i) {
+    const day = DAYS[d];
+    const set = new Set();
+    for (let o = 0; o < req.blockSize; o++) {
+      const cell = schedule[day][teachingTs[i + o].id];
+      for (const l of cell) {
+        const conflict = classIdsOf(l).some((cid) => req.classIds.includes(cid)) ||
+          (l.teacherId && req.tids.includes(l.teacherId)) ||
+          (l.roomId && req.rids.includes(l.roomId));
+        if (!conflict) continue;
+        const q = entryToPlacement.get(l);
+        if (!q || q.locked || !q.active) return null;
+        set.add(q);
+        if (set.size > 1) return null;
+      }
+    }
+    return set.size === 1 ? [...set][0] : null;
+  }
+
+  function inDomain(req, d, i) {
+    for (const c of req.domain) if (c.d === d && c.i === i) return true;
+    return false;
+  }
+
+  // Ikki darsni o'rnini almashtiradi (faqat umumiy zichlik yaxshilansa)
+  function trySwap(p, q) {
+    const rp = p.req;
+    const rq = q.req;
+    if (rp === rq) return false;
+    if (!p.active || !q.active || rp.placedRef !== p || rq.placedRef !== q) return false;
+    if (!rp.domain || !rq.domain) return false;
+    const pd = p.d, pi = p.startIdx, qd = q.d, qi = q.startIdx;
+    if (!inDomain(rp, qd, qi) || !inDomain(rq, pd, pi)) return false;
+    const seen = new Set();
+    const union = [];
+    for (const ci of rp.cIdxs) if (!seen.has(ci)) { seen.add(ci); union.push(ci); }
+    for (const ci of rq.cIdxs) if (!seen.has(ci)) { seen.add(ci); union.push(ci); }
+    const base = compactCost(union) + repeatCostAt(rp, pd, pd) + repeatCostAt(rq, qd, qd);
+    const baseGap = _lastGap;
+    let afterGap = Infinity;
+    markBits(rp, pd, pi, 0);
+    markBits(rq, qd, qi, 0);
+    let okFit = false;
+    let after = Infinity;
+    if (fitsAt(rp, qd, qi)) {
+      markBits(rp, qd, qi, 1);
+      if (fitsAt(rq, pd, pi)) {
+        markBits(rq, pd, pi, 1);
+        okFit = true;
+        after = compactCost(union) + repeatCostAt(rp, qd, pd) + repeatCostAt(rq, pd, qd);
+        afterGap = _lastGap;
+        markBits(rq, pd, pi, 0);
+      }
+      markBits(rp, qd, qi, 0);
+    }
+    markBits(rp, pd, pi, 1);
+    markBits(rq, qd, qi, 1);
+    if (!okFit) return false;
+    if (afterGap > baseGap) return false;
+    if (afterGap === baseGap && after >= base) return false;
+    unplace(p);
+    unplace(q);
+    place(rp, qd, qi);
+    place(rq, pd, pi);
+    return true;
+  }
+
+  // Band katakdagi dars bilan almashtirib, qolgan oynalarni yopadi
+  function swapPass(budgetMs) {
+    const stop = Date.now() + Math.max(120, budgetMs);
+    let n = 0;
+    const list = shuffle(placements.filter((p) => !p.locked), rng);
+    for (const p of list) {
+      if (Date.now() > stop) break;
+      const req = p.req;
+      if (!p.active || req.placedRef !== p || !req.domain) continue;
+      for (const cand of req.domain) {
+        if (cand.d === p.d && cand.i === p.startIdx) continue;
+        if (fitsAt(req, cand.d, cand.i)) continue;
+        const q = singleBlockerAt(req, cand.d, cand.i);
+        if (!q) continue;
+        if (trySwap(p, q)) { n += 1; break; }
+      }
+    }
+    return n;
+  }
+
+  function classDeviation(ci) {
+    let dev = 0;
+    for (let d = 0; d < D; d++) {
+      if (!dayUsable[ci * D + d]) continue;
+      const n = classDayCount[ci * D + d];
+      if (n > balHi[ci]) dev += n - balHi[ci];
+      else if (n < balLo[ci]) dev += balLo[ci] - n;
+    }
+    return dev;
+  }
+
+  function unionIdx(a, b) {
+    const seen = new Set(a);
+    const out = [...a];
+    for (const x of b) if (!seen.has(x)) { seen.add(x); out.push(x); }
+    return out;
+  }
+
+  // ——— KUNLIK ME'YORNI TO'G'RILASH ———
+  // Darslar soni me'yordan oshgan kundan kam bo'lgan kunga dars ko'chiradi.
+  // Joy band bo'lsa — to'siq darsni boshqa katakka surib, o'rin ochadi.
+  // Faqat umumiy zichlik + balans yaxshilansa qabul qilinadi.
+  function balancePass(budgetMs) {
+    const stop = Date.now() + Math.max(120, budgetMs);
+    let fixed = 0;
+    const order = [];
+    for (let ci = 0; ci < C; ci++) if (classDeviation(ci) > 0) order.push(ci);
+    for (const ci of order) {
+      for (let guard = 0; guard < 14; guard++) {
+        if (Date.now() > stop) return fixed;
+        if (classDeviation(ci) === 0) break;
+        const overs = [];
+        const unders = [];
+        for (let d = 0; d < D; d++) {
+          if (!dayUsable[ci * D + d]) continue;
+          const n = classDayCount[ci * D + d];
+          if (n > balHi[ci]) overs.push(d);
+          if (n < balLo[ci]) unders.push(d);
+        }
+        if (!overs.length || !unders.length) break;
+        let anyDone = false;
+        for (const overD of overs) {
+        for (const underD of unders) {
+        if (anyDone || Date.now() > stop) break;
+        // Faqat kunning OXIRGI darsi ko'chiriladi — shunda o'rtada oyna qolmaydi
+        let lastOcc = -1;
+        const oBase = ci * DT + overD * T;
+        for (let k = 0; k < T; k++) if (classGrid[oBase + k]) lastOcc = k;
+        const movers = [];
+        for (const p of placements) {
+          if (!p.active || p.locked || p.d !== overD) continue;
+          if (p.req.placedRef !== p) continue;
+          if (!p.req.cIdxs.includes(ci)) continue;
+          if (p.startIdx + p.req.blockSize - 1 !== lastOcc) continue;
+          movers.push(p);
+        }
+        let done = false;
+        for (const p0 of shuffle(movers, rng)) {
+          if (Date.now() > stop) return fixed;
+          const req = p0.req;
+          if (!req.domain) continue;
+          const targets = req.domain.filter((c) => c.d === underD);
+          if (!targets.length) continue;
+          for (const c of targets) {
+            // MUHIM: har urinishdan keyin joriy joylashuvni qaytadan o'qiymiz —
+            // eskirgan obyekt bilan ishlash darsning ikki marta qo'yilishiga olib keladi.
+            const cur = req.placedRef;
+            if (!cur || !cur.active || cur.d !== overD) break;
+            const oldD = cur.d;
+            const oldI = cur.startIdx;
+            if (fitsAt(req, c.d, c.i)) continue;
+            const q = singleBlockerAt(req, c.d, c.i);
+            if (!q || !q.active || q.req === req) continue;
+            const rq = q.req;
+            if (!rq.domain || rq.placedRef !== q) continue;
+            const qd = q.d;
+            const qi = q.startIdx;
+            const uni = unionIdx(req.cIdxs, rq.cIdxs);
+            const before = compactCost(uni);
+            const gapBefore = _lastGap;
+            unplace(q);
+            unplace(cur);
+            let ok = false;
+            if (fitsAt(req, c.d, c.i)) {
+              place(req, c.d, c.i);
+              let qBest = null;
+              let qCost = Infinity;
+              let qGap = Infinity;
+              for (const c2 of rq.domain) {
+                if (!fitsAt(rq, c2.d, c2.i)) continue;
+                markBits(rq, c2.d, c2.i, 1);
+                const cc = compactCost(uni);
+                const gg = _lastGap;
+                markBits(rq, c2.d, c2.i, 0);
+                if (gg < qGap || (gg === qGap && cc < qCost)) { qGap = gg; qCost = cc; qBest = c2; }
+              }
+              if (qBest) {
+                place(rq, qBest.d, qBest.i);
+                const cNow = compactCost(uni);
+                const gNow = _lastGap;
+                if (gNow < gapBefore || (gNow === gapBefore && cNow < before)) ok = true;
+                else unplace(rq.placedRef);
+              }
+              if (!ok) unplace(req.placedRef);
+            }
+            if (!ok) {
+              if (!req.placedRef) place(req, oldD, oldI);
+              if (!rq.placedRef) place(rq, qd, qi);
+            } else {
+              fixed += 1;
+              done = true;
+              break;
+            }
+          }
+          if (done) break;
+        }
+        if (done) anyDone = true;
+        }
+        }
+        if (!anyDone) break;
+      }
+    }
+    return fixed;
+  }
+
+  if (compactBudgetMs > 0) {
+    setBalanceTargets((ci) => { let t = 0; for (let d = 0; d < D; d++) t += classDayCount[ci * D + d]; return t; });
+    const compactStop = Date.now() + compactBudgetMs;
+    const left = () => compactStop - Date.now();
+    const step = Math.max(150, Math.round(compactBudgetMs * 0.12));
+    compactPass(Math.round(compactBudgetMs * 0.3));
+    for (let k = 0; k < 5 && left() > 400; k++) {
+      const a = swapPass(Math.min(step, left()));
+      const b = balancePass(Math.min(step, left()));
+      if (!a && !b) break;
+      compactPass(Math.min(step, left()));
+    }
+    // Yakuniy zichlash — oyna qolmasligi kafolatlanadi
+    compactPass(Math.max(400, left()));
+  }
+
   let soft = 0;
   for (const p of placements) { soft += scoreCandidate(p.req, p.d, p.startIdx); }
   const report = buildValidationReport({
@@ -1224,6 +1608,285 @@ function buildValidationReport(ctx) {
     ok: requiredTotal === placedTotal && !teacherConflicts.length && !roomConflicts.length &&
       !classConflicts.length && !lunchConflicts.length && !offDayConflicts.length,
   };
+}
+
+// ——— MUSTAQIL ZICHLASH ———
+// Tayyor jadvalni (qo'lda tahrirdan keyin ham) qayta joylashtirmasdan zichlaydi:
+// darslar kun boshiga tortiladi, oynalar yopiladi, yuk kunlar bo'yicha tenglashadi.
+// Hech qanday dars o'chmaydi va yangi dars qo'shilmaydi — faqat o'rni almashadi.
+// Qo'lda qo'yilgan (manual) darslar joyidan qimirlamaydi.
+export function compactSchedule(classes = [], timeslots = [], lunchGroups = [], schedule = {}) {
+  const D = DAYS.length;
+  const allTs = [...timeslots].sort((a, b) => Number(a.lessonNumber) - Number(b.lessonNumber));
+  const teachingTs = allTs.filter(isTeachingSlot);
+  const T = teachingTs.length;
+  if (!classes.length || !T) return schedule;
+  const DT = D * T;
+  const C = classes.length;
+  const cIdxOf = new Map(classes.map((c, i) => [c.id, i]));
+  const allIdxById = new Map(allTs.map((ts, i) => [ts.id, i]));
+  const nextConsecutive = new Array(Math.max(0, T - 1)).fill(false);
+  for (let i = 0; i < T - 1; i++) {
+    nextConsecutive[i] = allIdxById.get(teachingTs[i + 1].id) === allIdxById.get(teachingTs[i].id) + 1;
+  }
+
+  // Sinf uchun yopiq kataklar: obed, smena (classIds), dam kuni
+  const blocked = new Uint8Array(C * DT);
+  classes.forEach((c, ci) => {
+    const off = new Set(Array.isArray(c.offDays) ? c.offDays : []);
+    DAYS.forEach((day, d) => {
+      teachingTs.forEach((ts, i) => {
+        const allowed = Array.isArray(ts.classIds) ? ts.classIds : [];
+        const bad = off.has(day) ||
+          (allowed.length && !allowed.includes(c.id)) ||
+          classHasLunchAt(ts, c.id, lunchGroups, day);
+        if (bad) blocked[ci * DT + d * T + i] = 1;
+      });
+    });
+  });
+
+  // ——— Darslarni "birlik"larga ajratamiz ———
+  const units = [];
+  const baseKeyOf = (l) => (l.swap
+    ? `SWAP|${classIdsOf(l).slice().sort().join("+")}`
+    : `${l.subjectId}|${l.groupKey || ""}|${classIdsOf(l).slice().sort().join("+")}`);
+  const perDay = [];
+  for (let d = 0; d < D; d++) {
+    const day = DAYS[d];
+    const rows = [];
+    for (let i = 0; i < T; i++) {
+      const cell = schedule?.[day]?.[teachingTs[i].id];
+      const map = new Map();
+      if (Array.isArray(cell)) {
+        for (const l of cell) {
+          if (!l) continue;
+          const k = `${baseKeyOf(l)}|${l.blockIndex ?? "-"}`;
+          let g = map.get(k);
+          if (!g) map.set(k, (g = { base: baseKeyOf(l), bi: l.blockIndex ?? -1, entries: [] }));
+          g.entries.push(l);
+        }
+      }
+      rows.push(map);
+    }
+    perDay.push(rows);
+  }
+  const consumed = new Set();
+  for (let d = 0; d < D; d++) {
+    for (let i = 0; i < T; i++) {
+      for (const [k, g] of perDay[d][i]) {
+        const tag = `${d}|${i}|${k}`;
+        if (consumed.has(tag)) continue;
+        const parts = [g];
+        let len = 1;
+        if (g.bi === 0 && i + 1 < T && nextConsecutive[i]) {
+          for (const [k2, g2] of perDay[d][i + 1]) {
+            if (g2.base === g.base && g2.bi === 1) {
+              parts.push(g2);
+              consumed.add(`${d}|${i + 1}|${k2}`);
+              len = 2;
+              break;
+            }
+          }
+        }
+        const entries = parts.flatMap((x) => x.entries);
+        const cSet = new Set();
+        const tSet = new Set();
+        const rSet = new Set();
+        let locked = false;
+        for (const l of entries) {
+          classIdsOf(l).forEach((cid) => cSet.add(cid));
+          if (l.teacherId) tSet.add(l.teacherId);
+          if (l.altTeacherId) tSet.add(l.altTeacherId);
+          if (l.roomId) rSet.add(l.roomId);
+          if (l.manual) locked = true;
+        }
+        const cIdxs = [...cSet].map((cid) => cIdxOf.get(cid)).filter((x) => x !== undefined);
+        if (!cIdxs.length) locked = true;
+        units.push({
+          d, i, len, locked, entries,
+          parts: parts.map((x) => x.entries),
+          cIdxs, tids: [...tSet], rids: [...rSet],
+          subjectId: entries[0]?.subjectId || "",
+        });
+      }
+    }
+  }
+
+  // ——— Bandlik jadvallari ———
+  const classGrid = new Uint8Array(C * DT);
+  const tGrid = new Map();
+  const rGrid = new Map();
+  const gridOf = (map, id) => {
+    let g = map.get(id);
+    if (!g) { g = new Uint8Array(DT); map.set(id, g); }
+    return g;
+  };
+  const classDayCount = new Int16Array(C * D);
+  const subjDay = new Map(); // `${ci}|${d}|${subjectId}` -> soni
+  const bumpSubj = (u, d, sign) => {
+    for (const ci of u.cIdxs) {
+      const k = `${ci}|${d}|${u.subjectId}`;
+      subjDay.set(k, (subjDay.get(k) || 0) + sign * u.len);
+    }
+  };
+  const setBits = (u, d, i, val) => {
+    for (let o = 0; o < u.len; o++) {
+      const off = d * T + i + o;
+      for (const ci of u.cIdxs) classGrid[ci * DT + off] = val;
+      for (const id of u.tids) gridOf(tGrid, id)[off] = val;
+      for (const id of u.rids) gridOf(rGrid, id)[off] = val;
+    }
+    const delta = val ? u.len : -u.len;
+    for (const ci of u.cIdxs) classDayCount[ci * D + d] += delta;
+  };
+  units.forEach((u) => { setBits(u, u.d, u.i, 1); bumpSubj(u, u.d, +1); });
+
+  const fits = (u, d, i) => {
+    for (let o = 0; o < u.len; o++) {
+      if (o > 0 && !nextConsecutive[i + o - 1]) return false;
+      const off = d * T + i + o;
+      for (const ci of u.cIdxs) if (blocked[ci * DT + off] || classGrid[ci * DT + off]) return false;
+      for (const id of u.tids) if (gridOf(tGrid, id)[off]) return false;
+      for (const id of u.rids) if (gridOf(rGrid, id)[off]) return false;
+    }
+    return true;
+  };
+  // Har birlik uchun mumkin bo'lgan boshlanish nuqtalari
+  units.forEach((u) => {
+    const dom = [];
+    for (let d = 0; d < D; d++) {
+      for (let i = 0; i + u.len <= T; i++) {
+        let ok = true;
+        for (let o = 0; o < u.len && ok; o++) {
+          if (o > 0 && !nextConsecutive[i + o - 1]) ok = false;
+          for (const ci of u.cIdxs) if (blocked[ci * DT + d * T + i + o]) { ok = false; break; }
+        }
+        if (ok) dom.push({ d, i });
+      }
+    }
+    u.domain = dom;
+  });
+
+  const BAL_W = 900;
+  const REPEAT_W = 45;
+
+  // Kunlik me'yor: sinfning haftalik soati ish kunlariga teng bo'linadi
+  // (24 soat / 6 kun => kuniga aynan 4 ta).
+  const balLo = new Int16Array(C);
+  const balHi = new Int16Array(C);
+  const dayUsable = new Uint8Array(C * D);
+  for (let ci = 0; ci < C; ci++) {
+    let ud = 0;
+    let total = 0;
+    for (let d = 0; d < D; d++) {
+      let cap = 0;
+      const cBase = ci * DT + d * T;
+      for (let k = 0; k < T; k++) if (!blocked[cBase + k]) cap += 1;
+      if (cap > 0) { dayUsable[ci * D + d] = 1; ud += 1; }
+      total += classDayCount[ci * D + d];
+    }
+    if (!ud) { balLo[ci] = 0; balHi[ci] = 0; continue; }
+    const base = Math.floor(total / ud);
+    balLo[ci] = base;
+    balHi[ci] = total - base * ud > 0 ? base + 1 : base;
+  }
+
+  // Taqqoslash LEKSIKOGRAFIK: avval oynalar soni, keyin me'yordan chetlanish
+  let _gap = 0;
+  const costOf = (cIdxs) => {
+    let cost = 0;
+    let gaps = 0;
+    for (const ci of cIdxs) {
+      for (let d = 0; d < D; d++) {
+        const cBase = ci * DT + d * T;
+        let free = 0;
+        let head = 0;
+        for (let k = 0; k < T; k++) {
+          if (blocked[cBase + k]) continue;
+          if (classGrid[cBase + k]) head += free;
+          else free += 1;
+        }
+        gaps += head;
+        if (dayUsable[ci * D + d]) {
+          const n = classDayCount[ci * D + d];
+          const dev = n > balHi[ci] ? n - balHi[ci] : (n < balLo[ci] ? balLo[ci] - n : 0);
+          cost += dev * dev * BAL_W;
+        }
+      }
+    }
+    _gap = gaps;
+    return cost;
+  };
+  const repeatAt = (u, dd, oldD) => {
+    let c = 0;
+    for (const ci of u.cIdxs) {
+      let n = subjDay.get(`${ci}|${dd}|${u.subjectId}`) || 0;
+      if (dd === oldD) n -= u.len;
+      if (n > 0) c += n * REPEAT_W;
+    }
+    return c;
+  };
+
+  const movable = units.filter((u) => !u.locked && u.domain.length > 1);
+  const stop = Date.now() + 2500;
+  for (let round = 0; round < 12 && Date.now() < stop; round++) {
+    let moved = 0;
+    for (const u of movable) {
+      if (Date.now() > stop) break;
+      const oldD = u.d;
+      const oldI = u.i;
+      const base = costOf(u.cIdxs) + repeatAt(u, oldD, oldD);
+      const baseGap = _gap;
+      setBits(u, oldD, oldI, 0);
+      let bd = -1;
+      let bi = -1;
+      let bc = base;
+      let bg = baseGap;
+      for (const cand of u.domain) {
+        if (cand.d === oldD && cand.i === oldI) continue;
+        if (!fits(u, cand.d, cand.i)) continue;
+        setBits(u, cand.d, cand.i, 1);
+        const c = costOf(u.cIdxs) + repeatAt(u, cand.d, oldD);
+        const g = _gap;
+        setBits(u, cand.d, cand.i, 0);
+        if (g < bg || (g === bg && c < bc)) { bg = g; bc = c; bd = cand.d; bi = cand.i; }
+      }
+      if (bd >= 0) {
+        setBits(u, bd, bi, 1);
+        bumpSubj(u, oldD, -1);
+        bumpSubj(u, bd, +1);
+        u.d = bd;
+        u.i = bi;
+        moved += 1;
+      } else {
+        setBits(u, oldD, oldI, 1);
+      }
+    }
+    if (!moved) break;
+  }
+
+  // ——— Yangi jadvalni yig'amiz ———
+  const out = {};
+  DAYS.forEach((day) => {
+    out[day] = {};
+    allTs.forEach((ts) => { out[day][ts.id] = []; });
+  });
+  // dars bo'lmagan (obed/tanaffus) kataklardagi mavjud yozuvlarni saqlaymiz
+  DAYS.forEach((day) => {
+    allTs.forEach((ts) => {
+      if (isTeachingSlot(ts)) return;
+      const cell = schedule?.[day]?.[ts.id];
+      if (Array.isArray(cell) && cell.length) out[day][ts.id] = [...cell];
+    });
+  });
+  units.forEach((u) => {
+    const day = DAYS[u.d];
+    u.parts.forEach((entries, o) => {
+      const ts = teachingTs[u.i + o];
+      entries.forEach((e) => out[day][ts.id].push(e));
+    });
+  });
+  return out;
 }
 
 export function generateSchedule(...args) {

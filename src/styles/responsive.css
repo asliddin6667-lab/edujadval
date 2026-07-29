@@ -1,0 +1,482 @@
+/* =====================================================================
+   EDUJADVAL — RESPONSIVE (moslashuvchan) QATLAM
+   ---------------------------------------------------------------------
+   Bu fayl global.css DAN KEYIN import qilinadi.
+   Kompyuter ekranida (>1280px) HECH NARSA O'ZGARMAYDI — barcha qoidalar
+   media query ichida.
+   Breakpoint'lar:
+     <=1280px  kichik noutbuk
+     <=900px   planshet / telefon  → sidebar surilma menyuga aylanadi
+     <=600px   telefon
+     <=400px   kichik telefon
+   ===================================================================== */
+
+/* ---------- Umumiy himoya: gorizontal siljish bo'lmasin ---------- */
+html, body {
+  max-width: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Mobil menyu ochilganda orqa fon siljimasin */
+body.nav-open {
+  overflow: hidden;
+}
+
+/* ---------- Mobil menyu tugmasi (☰) va orqa fon ---------- */
+.mobile-nav-toggle {
+  display: none;
+  position: fixed;
+  top: 10px;
+  left: 12px;
+  z-index: 1150;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #0f172a;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.16);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+body.dark-mode .mobile-nav-toggle {
+  background: rgba(19, 23, 34, 0.95);
+  color: #e8edf5;
+  border-color: #2a3350;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+.sidebar-close {
+  display: none;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.07);
+  color: #0f172a;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* =====================================================================
+   1) <= 1280px — kichik noutbuk: sidebar biroz torayadi
+   ===================================================================== */
+@media (max-width: 1280px) and (min-width: 901px) {
+  .sidebar {
+    width: 244px !important;
+    min-width: 244px !important;
+    max-width: 244px !important;
+  }
+  .sidebar-brand-img { max-width: 200px; }
+  .nav-item {
+    min-height: 44px !important;
+    padding: 10px 12px !important;
+    font-size: 15px !important;
+  }
+  .nav-label { font-size: 15px !important; }
+  .nav-icon { font-size: 19px !important; width: 23px !important; min-width: 23px !important; }
+
+  .page-header { padding: 22px 22px 0; }
+  .page-body { padding: 16px 22px 32px; }
+  .pretty-schedule-page { padding: 22px 22px 40px; }
+}
+
+/* =====================================================================
+   2) <= 900px — SIDEBAR SURILMA MENYU (off-canvas drawer)
+   global.css dagi 86px "ikonka rejimi" bekor qilinadi
+   ===================================================================== */
+@media (max-width: 900px) {
+
+  .app-layout {
+    display: block !important;
+    height: auto !important;
+    min-height: 100dvh;
+    overflow: visible !important;
+  }
+
+  /* --- Sidebar chapdan suriladi --- */
+  .sidebar,
+  .sidebar.collapsed {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100dvh;
+    width: 274px !important;
+    min-width: 274px !important;
+    max-width: 274px !important;
+    transform: translateX(-102%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1200;
+    box-shadow: 0 0 45px rgba(15, 23, 42, 0.35);
+  }
+
+  .sidebar.mobile-open,
+  .sidebar.collapsed.mobile-open {
+    transform: translateX(0);
+  }
+
+  /* "collapsed" holati mobil menyuda ishlamaydi — hammasi ochiq ko'rinadi */
+  .sidebar .nav-label,
+  .sidebar.collapsed .nav-label {
+    display: inline-block !important;
+    font-size: 16px !important;
+  }
+  .sidebar .nav-section-title,
+  .sidebar.collapsed .nav-section-title {
+    display: block !important;
+  }
+  .sidebar .sidebar-school-name,
+  .sidebar.collapsed .sidebar-school-name {
+    display: block !important;
+  }
+  .sidebar .sidebar-footer,
+  .sidebar.collapsed .sidebar-footer {
+    display: block !important;
+  }
+  .sidebar .sidebar-user-name,
+  .sidebar.collapsed .sidebar-user-name,
+  .sidebar .sidebar-user-role,
+  .sidebar.collapsed .sidebar-user-role,
+  .sidebar .sidebar-version,
+  .sidebar.collapsed .sidebar-version {
+    display: block !important;
+  }
+  /* Logo yuklanmasa — matnli fallback qaytadi */
+  .sidebar-brand-img[style*="display: none"] + .sidebar-brand-fallback {
+    display: block !important;
+  }
+
+  .sidebar .sidebar-logo-image,
+  .sidebar.collapsed .sidebar-logo-image {
+    position: relative;
+    min-height: auto;
+    padding: 16px 14px 18px !important;
+  }
+  .sidebar .sidebar-brand-img,
+  .sidebar.collapsed .sidebar-brand-img {
+    max-width: 190px;
+    margin: 0;
+  }
+
+  .sidebar .nav-item,
+  .sidebar.collapsed .nav-item {
+    justify-content: flex-start !important;
+    padding: 12px 14px !important;
+    min-height: 46px !important;
+    transform: none !important;
+  }
+  .sidebar .nav-item:active {
+    transform: scale(0.985) !important;
+  }
+  .sidebar .nav-item:hover {
+    transform: none !important;
+  }
+  .sidebar.collapsed .sidebar-logout {
+    font-size: 15px;
+    padding: 12px 14px;
+  }
+  .sidebar.collapsed .sidebar-logout::before { content: none; }
+
+  /* Yig'ish tugmasi mobil menyuda kerak emas */
+  .sidebar-toggle { display: none !important; }
+  .sidebar.collapsed .sidebar-toggle-label { display: inline !important; }
+
+  /* Kun/tun almashtirgichi doim to'liq ko'rinishda */
+  .theme-switch.collapsed {
+    width: 58px;
+    height: 28px;
+    border-radius: 999px;
+    margin: 0;
+    display: inline-block;
+  }
+  .theme-switch.collapsed .theme-switch-knob {
+    top: 3px;
+    left: 3px;
+    transform: none;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    font-size: 13px;
+  }
+  .theme-switch.collapsed.night .theme-switch-knob {
+    transform: translateX(30px);
+    background: #e2e8f0;
+  }
+
+  /* --- Ochish/yopish boshqaruvlari --- */
+  .mobile-nav-toggle { display: flex; }
+  .sidebar-close { display: flex; }
+  .sidebar-backdrop.show {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    background: rgba(2, 6, 23, 0.5);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    animation: fadeIn 0.18s ease;
+  }
+
+  /* --- Asosiy kontent butun enni egallaydi --- */
+  .main-content {
+    width: 100%;
+    height: auto;
+    min-height: 100dvh;
+    overflow-y: visible;
+    padding-top: 58px; /* ☰ tugmasi uchun joy */
+  }
+
+  /* --- Sahifa ichki bo'shliqlari --- */
+  .page-header {
+    padding: 12px 16px 0;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .page-title { font-size: 19px; }
+  .page-subtitle { font-size: 12.5px; }
+  .page-body { padding: 14px 16px 32px; }
+
+  /* --- Statistik kartalar --- */
+  .stats-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .stat-card { padding: 14px 15px; }
+  .stat-value { font-size: 23px; letter-spacing: -0.6px; }
+  .stat-card:hover { transform: none; }
+
+  /* --- Toolbar / qidiruv --- */
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .search-bar { width: 100%; }
+  .search-bar input { min-width: 0 !important; width: 100%; }
+
+  /* --- Formalar (iOS zoom bo'lmasligi uchun 16px) --- */
+  .form-control,
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  .form-row { grid-template-columns: 1fr !important; }
+
+  /* --- Tugmalar barmoq uchun qulay o'lcham --- */
+  .btn { min-height: 40px; }
+  .btn-sm { min-height: 34px; }
+
+  /* --- Kartalar --- */
+  .card-body { padding: 15px; }
+  .card:hover { box-shadow: var(--card-shadow); }
+
+  /* --- Oddiy jadvallar gorizontal siljiydi --- */
+  .card-body:has(> .data-table),
+  .card-body:has(> table) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .data-table { min-width: 520px; }
+  .data-table th { padding: 8px 10px; font-size: 11px; }
+  .data-table td { padding: 9px 10px; font-size: 12.5px; }
+
+  /* --- Modal oynalar --- */
+  .modal-overlay { padding: 10px; }
+  .modal,
+  .modal-lg {
+    max-width: 100% !important;
+    max-height: 92dvh;
+  }
+  .modal-header { padding: 16px 16px 0; }
+  .modal-body { padding: 14px 16px; }
+  .modal-footer { padding: 0 16px 16px; flex-wrap: wrap; }
+  .modal-footer .btn { flex: 1 1 auto; justify-content: center; }
+
+  /* --- Tab'lar --- */
+  .tabs {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tab { white-space: nowrap; }
+
+  /* --- Toast bildirishnomalari --- */
+  .toast-container {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+  .toast { max-width: 100%; }
+
+  /* =============== DARS JADVALI (pretty) =============== */
+  .pretty-schedule-page {
+    padding: 14px 12px 36px;
+    min-height: auto;
+  }
+  .pretty-topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .pretty-topbar h1 { font-size: 21px; }
+  .pretty-toolbar {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+  }
+  .pretty-actions {
+    justify-content: stretch;
+    gap: 8px;
+  }
+  .pretty-actions .pretty-btn {
+    flex: 1 1 140px;
+    padding: 11px 12px;
+    font-size: 13px;
+  }
+  .pretty-legend { gap: 7px; margin: 12px 0 18px; }
+  .pretty-subject-pill { font-size: 12px; padding: 6px 10px; }
+  .pretty-class-header h2 { font-size: 19px; }
+  .pretty-table-card { border-radius: 13px; }
+
+  .pretty-table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Birinchi ustun (dars vaqti) YOPISHIB TURADI —
+     gorizontal siljitganda ham qaysi dars ekani ko'rinadi */
+  .pretty-schedule-table th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 6;
+    width: 96px;
+    min-width: 96px;
+  }
+  .pretty-time-cell {
+    position: sticky;
+    left: 0;
+    z-index: 4;
+    width: 96px;
+    min-width: 96px;
+    box-shadow: 2px 0 0 #e5e7eb;
+  }
+  body.dark-mode .pretty-time-cell {
+    background: #161b28 !important;
+    color: #aeb8cc;
+    box-shadow: 2px 0 0 #232a3d;
+  }
+  body.dark-mode .pretty-time-cell span { color: #8a94a8; }
+
+  .pretty-schedule-table { min-width: 780px; }
+  .pretty-schedule-table th { padding: 10px 8px; font-size: 12px; }
+  .pretty-schedule-table td { padding: 4px; }
+  .pretty-day-cell { min-width: 132px; }
+  .pretty-lesson-card { min-height: 50px; padding: 7px 8px; }
+  .pretty-lesson-title { font-size: 12.5px; margin-bottom: 3px; }
+  .pretty-lesson-meta { font-size: 11px; }
+  .pretty-group-line { grid-template-columns: 64px 1fr; font-size: 10px; }
+
+  /* =============== Oddiy schedule-table =============== */
+  .schedule-table { min-width: 640px; }
+  .schedule-table td { min-width: 96px; }
+  .schedule-table .time-col {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    min-width: 68px;
+    font-size: 11px;
+  }
+
+  /* =============== AUTH sahifasi =============== */
+  .auth-page { padding: 16px; }
+  .auth-card { padding: 22px 18px; border-radius: 18px; }
+
+  /* Sinf fanlari sozlama paneli */
+  .cs-settings-panel { padding: 4px 10px 14px 10px; }
+}
+
+/* =====================================================================
+   3) <= 600px — telefon
+   ===================================================================== */
+@media (max-width: 600px) {
+  .page-header { padding: 10px 12px 0; }
+  .page-body { padding: 12px 12px 28px; }
+  .page-title { font-size: 18px; }
+
+  .stats-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .stat-value { font-size: 21px; }
+  .stat-icon { font-size: 19px; margin-bottom: 7px; }
+
+  .card-body { padding: 13px; }
+  .settings-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .pretty-schedule-page { padding: 12px 10px 32px; }
+  .pretty-topbar h1 { font-size: 19px; }
+  .pretty-actions .pretty-btn { flex: 1 1 100%; }
+  .pretty-schedule-table { min-width: 700px; }
+  .pretty-day-cell { min-width: 118px; }
+  .pretty-lesson-title { font-size: 12px; }
+  .pretty-schedule-table th:first-child,
+  .pretty-time-cell { width: 84px; min-width: 84px; font-size: 11.5px; }
+  .pretty-time-cell strong { font-size: 12.5px; }
+
+  .modal-footer { flex-direction: column-reverse; }
+  .modal-footer .btn { width: 100%; }
+
+  .color-option { width: 32px; height: 32px; }
+}
+
+/* =====================================================================
+   4) <= 400px — kichik telefon
+   ===================================================================== */
+@media (max-width: 400px) {
+  .stats-grid { grid-template-columns: 1fr; }
+  .page-title { font-size: 17px; }
+  .sidebar,
+  .sidebar.collapsed { width: 258px !important; min-width: 258px !important; max-width: 258px !important; }
+  .pretty-subject-pill { font-size: 11px; padding: 5px 9px; }
+}
+
+/* =====================================================================
+   5) Landshaft (yotiq) rejim — past ekranli telefon
+   ===================================================================== */
+@media (max-height: 480px) and (max-width: 900px) {
+  .main-content { padding-top: 52px; }
+  .sidebar-logo-image { padding: 10px 14px 12px !important; }
+  .sidebar-brand-img { max-width: 140px; }
+  .nav-item { min-height: 40px !important; padding: 9px 12px !important; }
+}
+
+/* =====================================================================
+   6) Chop etish — mobil elementlar chiqmasin
+   ===================================================================== */
+@media print {
+  .mobile-nav-toggle,
+  .sidebar-backdrop,
+  .sidebar-close { display: none !important; }
+  .main-content { padding-top: 0 !important; }
+  .app-layout { display: block !important; }
+}

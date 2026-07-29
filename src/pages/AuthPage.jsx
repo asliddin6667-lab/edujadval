@@ -1,27 +1,60 @@
-import { useState } from "react";
-import { login, registerUser } from "../services/authService";
-import { DeviceLockedScreen } from "../components/DeviceLockNotice";
+import { useState, useEffect } from "react";
+import {
+  login,
+  registerUser,
+  sendPasswordReset,
+  completePasswordReset,
+  clearRecoveryUrl,
+} from "../services/authService";
 import "../styles/auth.css";
 
-export default function AuthPage({ onAuth }) {
+// =====================================================================
+//  KIRISH / RO'YXATDAN O'TISH / PAROLNI TIKLASH
+//
+//  Rejimlar:
+//    login    — email + parol bilan kirish (qurilma cheklovi YO'Q)
+//    register — yangi hisob ochish
+//    forgot   — emailga tiklash havolasini yuborish
+//    reset    — havoladan kelgan foydalanuvchi yangi parol o'rnatadi
+// =====================================================================
+export default function AuthPage({ onAuth, initialMode = "login" }) {
   const savedEmail = localStorage.getItem("edu_remember_email") || "";
-  const [mode, setMode] = useState("login");
+  const [mode, setMode] = useState(initialMode);
   const [form, setForm] = useState({ name: "", email: savedEmail, password: "", schoolName: "" });
+  const [newPass, setNewPass] = useState({ a: "", b: "" });
   const [remember, setRemember] = useState(!!savedEmail);
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
-  const [lockedInfo, setLockedInfo] = useState(null); // { userId, deviceName }
+
+  // Tiklash rejimida ochilsa, URL'dagi tokenni ko'rinmas qilamiz
+  useEffect(() => {
+    if (initialMode === "reset") {
+      setInfo("Yangi parolingizni kiriting.");
+    }
+  }, [initialMode]);
 
   function update(key, value) {
     setForm(prev => ({ ...prev, [key]: value }));
+    clearMsgs();
+  }
+
+  function clearMsgs() {
     setError("");
     setSuccess("");
     setInfo("");
   }
 
+  function switchMode(next) {
+    setMode(next);
+    clearMsgs();
+  }
+
+  // ------------------------------------------------------------------
+  //  KIRISH
+  // ------------------------------------------------------------------
   async function handleLogin(e) {
     e.preventDefault();
     if (loading) return;
@@ -33,16 +66,15 @@ export default function AuthPage({ onAuth }) {
       else localStorage.removeItem("edu_remember_email");
       onAuth(user);
     } catch (err) {
-      if (err.code === "DEVICE_LOCKED") {
-        setLockedInfo({ userId: err.uid, deviceName: err.deviceName });
-      } else {
-        setError(err.message);
-      }
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   }
 
+  // ------------------------------------------------------------------
+  //  RO'YXATDAN O'TISH
+  // ------------------------------------------------------------------
   async function handleRegister(e) {
     e.preventDefault();
     if (loading) return;
@@ -50,8 +82,8 @@ export default function AuthPage({ onAuth }) {
     setError("");
     try {
       await registerUser(form);
-      setSuccess("Ro'yxatdan o'tdingiz. Endi login qiling.");
       setMode("login");
+      setSuccess("Ro'yxatdan o'tdingiz. Endi login qiling.");
       setForm(prev => ({ ...prev, password: "" }));
     } catch (err) {
       setError(err.message);
@@ -60,26 +92,73 @@ export default function AuthPage({ onAuth }) {
     }
   }
 
+  // ------------------------------------------------------------------
+  //  PAROLNI UNUTDIM -> EMAILGA HAVOLA
+  // ------------------------------------------------------------------
+  async function handleForgot(e) {
+    e.preventDefault();
+    if (loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      await sendPasswordReset(form.email);
+      setSuccess(
+        "Tiklash havolasi yuborildi. Pochtangizni (va \"Spam\" papkasini) tekshiring."
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  //  YANGI PAROLNI O'RNATISH
+  // ------------------------------------------------------------------
+  async function handleReset(e) {
+    e.preventDefault();
+    if (loading) return;
+    if (newPass.a !== newPass.b) {
+      setError("Parollar mos kelmadi");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await completePasswordReset(newPass.a);
+      clearRecoveryUrl();
+      setNewPass({ a: "", b: "" });
+      setMode("login");
+      setSuccess("Parol yangilandi! Endi yangi parol bilan kiring.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const isLogin = mode === "login";
+  const isRegister = mode === "register";
+  const isForgot = mode === "forgot";
+  const isReset = mode === "reset";
+
+  const submitHandler = isLogin
+    ? handleLogin
+    : isRegister
+    ? handleRegister
+    : isForgot
+    ? handleForgot
+    : handleReset;
 
   return (
     <div className="edu-auth">
-      {/* Qulflangan qurilma ekrani */}
-      {lockedInfo && (
-        <DeviceLockedScreen
-          userId={lockedInfo.userId}
-          deviceName={lockedInfo.deviceName}
-          onBack={() => setLockedInfo(null)}
-        />
-      )}
-
       {/* Fon bezaklari */}
       <div className="edu-bg-circle edu-bg-circle--1" />
       <div className="edu-bg-circle edu-bg-circle--2" />
       <div className="edu-bg-ring edu-bg-ring--1" />
       <div className="edu-bg-ring edu-bg-ring--2" />
 
-      {/* Chap tomondagi 3D elementlar: kalendar taxtasi, soat, qalamlar, kitoblar */}
+      {/* Chap tomondagi 3D elementlar */}
       <div className="edu-deco edu-deco--left" aria-hidden="true">
         <div className="edu-clock">
           <span className="edu-clock__hand edu-clock__hand--h" />
@@ -106,7 +185,7 @@ export default function AuthPage({ onAuth }) {
         </div>
       </div>
 
-      {/* O'ng tomondagi 3D elementlar: diagramma va kalendar ikonkasi */}
+      {/* O'ng tomondagi 3D elementlar */}
       <div className="edu-deco edu-deco--right" aria-hidden="true">
         <div className="edu-chart">
           <span className="edu-chart__bar edu-chart__bar--g" />
@@ -122,7 +201,6 @@ export default function AuthPage({ onAuth }) {
       </div>
 
       <div className="edu-center">
-        {/* Oq karta */}
         <div className="edu-card">
           <div className="edu-card__brand">
             <img
@@ -132,29 +210,55 @@ export default function AuthPage({ onAuth }) {
             />
           </div>
 
-          <div className="edu-tabs">
-            <button
-              type="button"
-              className={`edu-tabs__btn ${isLogin ? "edu-tabs__btn--active" : ""}`}
-              onClick={() => { setMode("login"); setError(""); setInfo(""); }}
-            >
-              Kirish
-            </button>
-            <button
-              type="button"
-              className={`edu-tabs__btn ${!isLogin ? "edu-tabs__btn--active" : ""}`}
-              onClick={() => { setMode("register"); setError(""); setInfo(""); }}
-            >
-              Ro'yxatdan o'tish
-            </button>
-          </div>
+          {/* Tablar faqat login/register rejimida ko'rinadi */}
+          {(isLogin || isRegister) && (
+            <div className="edu-tabs">
+              <button
+                type="button"
+                className={`edu-tabs__btn ${isLogin ? "edu-tabs__btn--active" : ""}`}
+                onClick={() => switchMode("login")}
+              >
+                Kirish
+              </button>
+              <button
+                type="button"
+                className={`edu-tabs__btn ${isRegister ? "edu-tabs__btn--active" : ""}`}
+                onClick={() => switchMode("register")}
+              >
+                Ro'yxatdan o'tish
+              </button>
+            </div>
+          )}
+
+          {/* Tiklash rejimlarining sarlavhasi */}
+          {isForgot && (
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 34, marginBottom: 4 }}>🔑</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
+                Parolni tiklash
+              </div>
+              <div style={{ fontSize: 13.5, color: "#64748b", marginTop: 4 }}>
+                Email manzilingizni kiriting — tiklash havolasini yuboramiz.
+              </div>
+            </div>
+          )}
+
+          {isReset && (
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 34, marginBottom: 4 }}>🔒</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
+                Yangi parol o'rnatish
+              </div>
+            </div>
+          )}
 
           {error && <div className="edu-alert edu-alert--warn">⚠️ {error}</div>}
           {success && <div className="edu-alert edu-alert--ok">✅ {success}</div>}
           {info && <div className="edu-alert edu-alert--info">ℹ️ {info}</div>}
 
-          <form onSubmit={isLogin ? handleLogin : handleRegister} className="edu-form">
-            {!isLogin && (
+          <form onSubmit={submitHandler} className="edu-form">
+            {/* --- Ro'yxatdan o'tishdagi qo'shimcha maydonlar --- */}
+            {isRegister && (
               <>
                 <div className="edu-field">
                   <label className="edu-field__label">ISM FAMILIYA</label>
@@ -183,42 +287,92 @@ export default function AuthPage({ onAuth }) {
               </>
             )}
 
-            <div className="edu-field">
-              <label className="edu-field__label">EMAIL</label>
-              <div className="edu-field__wrap">
-                <span className="edu-field__icon">✉️</span>
-                <input
-                  className="edu-field__input"
-                  type="email"
-                  value={form.email}
-                  onChange={e => update("email", e.target.value)}
-                  placeholder="email@example.com"
-                />
+            {/* --- Email (reset rejimidan tashqari hamma joyda) --- */}
+            {!isReset && (
+              <div className="edu-field">
+                <label className="edu-field__label">EMAIL</label>
+                <div className="edu-field__wrap">
+                  <span className="edu-field__icon">✉️</span>
+                  <input
+                    className="edu-field__input"
+                    type="email"
+                    value={form.email}
+                    onChange={e => update("email", e.target.value)}
+                    placeholder="email@example.com"
+                    autoComplete="email"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
-            <div className="edu-field">
-              <label className="edu-field__label">PAROL</label>
-              <div className="edu-field__wrap">
-                <span className="edu-field__icon">🔒</span>
-                <input
-                  className="edu-field__input edu-field__input--pass"
-                  type={showPass ? "text" : "password"}
-                  value={form.password}
-                  onChange={e => update("password", e.target.value)}
-                  placeholder="Kamida 6 belgi"
-                />
-                <button
-                  type="button"
-                  className="edu-field__eye"
-                  onClick={() => setShowPass(v => !v)}
-                  title={showPass ? "Parolni yashirish" : "Parolni ko'rsatish"}
-                >
-                  {showPass ? "🙈" : "👁️"}
-                </button>
+            {/* --- Parol (forgot rejimida kerak emas) --- */}
+            {(isLogin || isRegister) && (
+              <div className="edu-field">
+                <label className="edu-field__label">PAROL</label>
+                <div className="edu-field__wrap">
+                  <span className="edu-field__icon">🔒</span>
+                  <input
+                    className="edu-field__input edu-field__input--pass"
+                    type={showPass ? "text" : "password"}
+                    value={form.password}
+                    onChange={e => update("password", e.target.value)}
+                    placeholder="Kamida 6 belgi"
+                    autoComplete={isLogin ? "current-password" : "new-password"}
+                  />
+                  <button
+                    type="button"
+                    className="edu-field__eye"
+                    onClick={() => setShowPass(v => !v)}
+                    title={showPass ? "Parolni yashirish" : "Parolni ko'rsatish"}
+                  >
+                    {showPass ? "🙈" : "👁️"}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
+            {/* --- Yangi parol maydonlari (reset rejimi) --- */}
+            {isReset && (
+              <>
+                <div className="edu-field">
+                  <label className="edu-field__label">YANGI PAROL</label>
+                  <div className="edu-field__wrap">
+                    <span className="edu-field__icon">🔒</span>
+                    <input
+                      className="edu-field__input edu-field__input--pass"
+                      type={showPass ? "text" : "password"}
+                      value={newPass.a}
+                      onChange={e => { setNewPass(p => ({ ...p, a: e.target.value })); clearMsgs(); }}
+                      placeholder="Kamida 6 belgi"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      className="edu-field__eye"
+                      onClick={() => setShowPass(v => !v)}
+                    >
+                      {showPass ? "🙈" : "👁️"}
+                    </button>
+                  </div>
+                </div>
+                <div className="edu-field">
+                  <label className="edu-field__label">PAROLNI TAKRORLANG</label>
+                  <div className="edu-field__wrap">
+                    <span className="edu-field__icon">🔁</span>
+                    <input
+                      className="edu-field__input"
+                      type={showPass ? "text" : "password"}
+                      value={newPass.b}
+                      onChange={e => { setNewPass(p => ({ ...p, b: e.target.value })); clearMsgs(); }}
+                      placeholder="Yana bir marta"
+                      autoComplete="new-password"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* --- Eslab qolish + parolni unutdingizmi --- */}
             {isLogin && (
               <div className="edu-row">
                 <label className="edu-remember">
@@ -232,7 +386,7 @@ export default function AuthPage({ onAuth }) {
                 <button
                   type="button"
                   className="edu-forgot"
-                  onClick={() => setInfo("Parolni tiklash uchun administrator bilan bog'laning.")}
+                  onClick={() => switchMode("forgot")}
                 >
                   Parolni unutdingizmi?
                 </button>
@@ -240,12 +394,54 @@ export default function AuthPage({ onAuth }) {
             )}
 
             <button className="edu-submit" type="submit" disabled={loading}>
-              {isLogin ? (loading ? "Tekshirilmoqda..." : "Kirish") : "Ro'yxatdan o'tish"}
+              {isLogin && (loading ? "Tekshirilmoqda..." : "Kirish")}
+              {isRegister && (loading ? "Yaratilmoqda..." : "Ro'yxatdan o'tish")}
+              {isForgot && (loading ? "Yuborilmoqda..." : "Tiklash havolasini yuborish")}
+              {isReset && (loading ? "Saqlanmoqda..." : "Parolni saqlash")}
             </button>
           </form>
+
+          {/* --- Orqaga qaytish + admin yordami --- */}
+          {isForgot && (
+            <>
+              <button
+                type="button"
+                className="edu-forgot"
+                style={{ display: "block", margin: "14px auto 0" }}
+                onClick={() => switchMode("login")}
+              >
+                ← Kirish sahifasiga qaytish
+              </button>
+              <div style={{
+                marginTop: 14, padding: "11px 14px", borderRadius: 12,
+                background: "#f8fafc", border: "1px solid #e2e8f0",
+                fontSize: 12.5, color: "#475569", lineHeight: 1.6, textAlign: "center",
+              }}>
+                Xat kelmadimi? Administrator ham parolingizni tiklab bera oladi:{" "}
+                <a
+                  href="https://t.me/+998941366667"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "#4f46e5", fontWeight: 700 }}
+                >
+                  Asliddin_Muhiddinovich ✈️
+                </a>
+              </div>
+            </>
+          )}
+
+          {isReset && (
+            <button
+              type="button"
+              className="edu-forgot"
+              style={{ display: "block", margin: "14px auto 0" }}
+              onClick={() => { clearRecoveryUrl(); switchMode("login"); }}
+            >
+              ← Bekor qilish
+            </button>
+          )}
         </div>
 
-        {/* Karta ostidagi imzo */}
         <div className="edu-footer">
           © 2026 Edujadval.uz. Barcha huquqlar himoyalangan. · Admin: Asliddin_Muhiddinovich
         </div>

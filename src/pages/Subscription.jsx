@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { checkSubscription, refreshSubscription } from "../services/authService";
-import { DevicePolicyNotice } from "../components/DeviceLockNotice";
 
 // =====================================================================
 //  OBUNA SAHIFASI — to'lov qilinmagan/muddati tugagan foydalanuvchilar
@@ -121,7 +120,8 @@ export default function SubscriptionPage({ user, onUnlocked, onLogout, toast }) 
           </div>
 
           {/* Qurilma sharti haqida ogohlantirish */}
-          <DevicePolicyNotice />
+         
+        
 
           {/* To'lov ko'rsatmasi */}
           <div style={{

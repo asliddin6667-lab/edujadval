@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import "./styles/global.css";
+import "./styles/responsive.css";
 
 import Sidebar from "./components/Sidebar";
 import PaywallModal from "./components/PaywallModal";
@@ -21,7 +22,11 @@ import UsersPage from "./pages/Users";
 import SettingsPage from "./pages/Settings";
 import { useToast } from "./hooks/useToast";
 import { loadData, saveData, loadUserData, saveUserData } from "./services/storageService";
-import { getCurrentUser, logout, checkSubscription, refreshCurrentUser } from "./services/authService";
+import {
+  getCurrentUser, logout, checkSubscription, refreshCurrentUser,
+  isPasswordRecoveryUrl,
+} from "./services/authService";
+import { syncOnLogin, schedulePush, flushPush } from "./services/cloudSync";
 import { buildDemoSchoolData } from "./utils/demoData";
 
 const emptySettings = { schoolName: "", academicYear: "2024-2025" };
@@ -31,6 +36,10 @@ export default function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [darkMode, setDarkMode] = useState(() => loadData("darkMode", false));
   const [settings, setSettings] = useState(emptySettings);
+
+  // Parol tiklash havolasidan kelgan bo'lsa — hamma narsadan oldin
+  // yangi parol o'rnatish ekrani ko'rsatiladi.
+  const [recoveryMode, setRecoveryMode] = useState(() => isPasswordRecoveryUrl());
 
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
@@ -42,33 +51,72 @@ export default function App() {
   const [shifts, setShifts] = useState([]);
   const [schedule, setSchedule] = useState({});
   const [dataReady, setDataReady] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   // ——— Mehmon rejimi holatlari ———
-  const [paywallOpen, setPaywallOpen] = useState(false); // kichik to'lov oynasi
-  const [showPayPage, setShowPayPage] = useState(false); // to'liq to'lov sahifasi
+  const [paywallOpen, setPaywallOpen] = useState(false);
+  const [showPayPage, setShowPayPage] = useState(false);
+
+  // ——— Mobil menyu ———
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const { toasts, addToast } = useToast();
   const userId = currentUser?.id;
 
+  // Mobil menyu ochiq bo'lganda orqa fon siljimasin
+  useEffect(() => {
+    if (mobileNavOpen) document.body.classList.add("nav-open");
+    else document.body.classList.remove("nav-open");
+    return () => document.body.classList.remove("nav-open");
+  }, [mobileNavOpen]);
+
+  // Ekran kattalashsa (telefon → kompyuter) menyu holati tozalanadi
+  useEffect(() => {
+    function onResize() {
+      if (window.innerWidth > 900) setMobileNavOpen(false);
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // Esc tugmasi menyuni yopadi
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    function onKey(e) {
+      if (e.key === "Escape") setMobileNavOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileNavOpen]);
+
   // ——— Doimiy saqlash (persistent storage) ———
-  // Brauzerga "bu saytning ma'lumotlarini joy bo'shatish uchun
-  // avtomatik o'chirma" degan so'rov yuboriladi. localStorage'dagi
-  // jadval ma'lumotlari eviction'dan himoyalanadi.
   useEffect(() => {
     if (navigator.storage && navigator.storage.persist) {
       navigator.storage.persist().then((granted) => {
         console.log(
           granted
-            ? "✅ Doimiy saqlash yoqildi — brauzer ma'lumotlarni avtomatik o'chirmaydi"
-            : "⚠️ Doimiy saqlash hozircha berilmadi — saytdan ko'proq foydalanilsa, brauzer keyinroq ruxsat beradi"
+            ? "✅ Doimiy saqlash yoqildi"
+            : "⚠️ Doimiy saqlash hozircha berilmadi"
         );
       }).catch(() => {});
     }
   }, []);
 
-  // Yuklanganda profil serverdan yangilanadi:
-  // - obuna faollashtirilgan bo'lsa — darhol ochiladi
-  // - sessiya tugagan/bloklangan bo'lsa — login sahifasiga qaytadi
+  // ——— Sahifa yopilishidan oldin bulutga yuborish ———
+  // Foydalanuvchi darhol yopib qo'ysa ham oxirgi o'zgarishlar yo'qolmasin.
+  useEffect(() => {
+    function onHide() {
+      if (document.visibilityState === "hidden") flushPush().catch(() => {});
+    }
+    window.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onHide);
+    };
+  }, []);
+
+  // Yuklanganda profil serverdan yangilanadi
   useEffect(() => {
     if (!currentUser) return;
     refreshCurrentUser().then((fresh) => {
@@ -86,52 +134,81 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
+  // ——— MA'LUMOTLARNI YUKLASH (avval bulut bilan sinxronlanadi) ———
   useEffect(() => {
     if (!currentUser) return;
+    let cancelled = false;
     setDataReady(false);
+    setSyncing(true);
 
-    let loadedSettings = loadUserData(currentUser.id, "settings", { ...emptySettings, schoolName: currentUser.schoolName || "" });
-    let loadedClasses = loadUserData(currentUser.id, "classes", []);
-    let loadedSubjects = loadUserData(currentUser.id, "subjects", []);
-    let loadedTeachers = loadUserData(currentUser.id, "teachers", []);
-    let loadedClassSubjects = loadUserData(currentUser.id, "classSubjects", {});
-    let loadedRooms = loadUserData(currentUser.id, "rooms", []);
-    let loadedTimeslots = loadUserData(currentUser.id, "timeslots", []);
-    let loadedLunchGroups = loadUserData(currentUser.id, "lunchGroups", []);
-    let loadedShifts = loadUserData(currentUser.id, "shifts", []);
-    let loadedSchedule = loadUserData(currentUser.id, "schedule", {});
+    (async () => {
+      // 1) Bulut bilan sinxronizatsiya:
+      //    - boshqa qurilmada ishlangan bo'lsa -> bu yerga tortiladi
+      //    - bu qurilmada ma'lumot bor, bulut bo'sh bo'lsa -> yuboriladi
+      let syncResult = { action: "skip" };
+      try {
+        syncResult = await syncOnLogin(currentUser);
+      } catch {
+        syncResult = { action: "offline" };
+      }
+      if (cancelled) return;
 
-    // Demo foydalanuvchida ma'lumot bo'lmasa, platforma avtomatik to'ldirilgan holda ochiladi.
-    if (currentUser.email === "demo@edujadval.uz" && !loadedClasses.length) {
-      const demo = buildDemoSchoolData();
-      loadedSettings = demo.settings;
-      loadedClasses = demo.classes;
-      loadedSubjects = demo.subjects;
-      loadedTeachers = demo.teachers;
-      loadedClassSubjects = demo.classSubjects;
-      loadedRooms = demo.rooms;
-      loadedTimeslots = demo.timeslots;
-      loadedLunchGroups = demo.lunchGroups;
-      loadedShifts = demo.shifts || [];
-      loadedSchedule = demo.schedule;
-    }
+      // 2) localStorage'dan sinxron o'qish (avvalgidek)
+      let loadedSettings = loadUserData(currentUser.id, "settings", { ...emptySettings, schoolName: currentUser.schoolName || "" });
+      let loadedClasses = loadUserData(currentUser.id, "classes", []);
+      let loadedSubjects = loadUserData(currentUser.id, "subjects", []);
+      let loadedTeachers = loadUserData(currentUser.id, "teachers", []);
+      let loadedClassSubjects = loadUserData(currentUser.id, "classSubjects", {});
+      let loadedRooms = loadUserData(currentUser.id, "rooms", []);
+      let loadedTimeslots = loadUserData(currentUser.id, "timeslots", []);
+      let loadedLunchGroups = loadUserData(currentUser.id, "lunchGroups", []);
+      let loadedShifts = loadUserData(currentUser.id, "shifts", []);
+      let loadedSchedule = loadUserData(currentUser.id, "schedule", {});
 
-    setSettings(loadedSettings);
-    setClasses(loadedClasses);
-    setSubjects(loadedSubjects);
-    setTeachers(loadedTeachers);
-    setClassSubjects(loadedClassSubjects);
-    setRooms(loadedRooms);
-    setTimeslots(loadedTimeslots);
-    setLunchGroups(loadedLunchGroups);
-    setShifts(loadedShifts);
-    setSchedule(loadedSchedule);
-    setDataReady(true);
-    setActivePage("dashboard");
-    setPaywallOpen(false);
-    setShowPayPage(false);
+      // Demo foydalanuvchida ma'lumot bo'lmasa, platforma to'ldirilgan holda ochiladi.
+      if (currentUser.email === "demo@edujadval.uz" && !loadedClasses.length) {
+        const demo = buildDemoSchoolData();
+        loadedSettings = demo.settings;
+        loadedClasses = demo.classes;
+        loadedSubjects = demo.subjects;
+        loadedTeachers = demo.teachers;
+        loadedClassSubjects = demo.classSubjects;
+        loadedRooms = demo.rooms;
+        loadedTimeslots = demo.timeslots;
+        loadedLunchGroups = demo.lunchGroups;
+        loadedShifts = demo.shifts || [];
+        loadedSchedule = demo.schedule;
+      }
+
+      if (cancelled) return;
+
+      setSettings(loadedSettings);
+      setClasses(loadedClasses);
+      setSubjects(loadedSubjects);
+      setTeachers(loadedTeachers);
+      setClassSubjects(loadedClassSubjects);
+      setRooms(loadedRooms);
+      setTimeslots(loadedTimeslots);
+      setLunchGroups(loadedLunchGroups);
+      setShifts(loadedShifts);
+      setSchedule(loadedSchedule);
+      setDataReady(true);
+      setSyncing(false);
+      setActivePage("dashboard");
+      setPaywallOpen(false);
+      setShowPayPage(false);
+      setMobileNavOpen(false);
+
+      if (syncResult.action === "offline") {
+        addToast("Internet yo'q — mahalliy nusxada ishlayapsiz", "warning");
+      }
+    })();
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
+  // ——— localStorage'ga saqlash (avvalgidek, sinxron) ———
   useEffect(() => { if (userId && dataReady) saveUserData(userId, "classes", classes); }, [userId, dataReady, classes]);
   useEffect(() => { if (userId && dataReady) saveUserData(userId, "subjects", subjects); }, [userId, dataReady, subjects]);
   useEffect(() => { if (userId && dataReady) saveUserData(userId, "teachers", teachers); }, [userId, dataReady, teachers]);
@@ -144,30 +221,74 @@ export default function App() {
   useEffect(() => { if (userId && dataReady) saveUserData(userId, "settings", settings); }, [userId, dataReady, settings]);
   useEffect(() => { saveData("darkMode", darkMode); }, [darkMode]);
 
+  // ——— BULUTGA YUBORISH (2.5 soniya debounce bilan) ———
+  // Har qanday o'zgarishdan keyin bir marta yuboriladi, shu sababli
+  // tez-tez tahrirlashda server ortiqcha yuklanmaydi.
+  useEffect(() => {
+    if (!userId || !dataReady) return;
+    if (currentUser?.email === "demo@edujadval.uz") return; // demo bulutga yozilmaydi
+    schedulePush(userId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    userId, dataReady,
+    classes, subjects, teachers, classSubjects, rooms,
+    timeslots, lunchGroups, shifts, schedule, settings,
+  ]);
+
   useEffect(() => {
     if (darkMode) document.body.classList.add("dark-mode");
     else document.body.classList.remove("dark-mode");
   }, [darkMode]);
 
-  function handleLogout() {
+  async function handleLogout() {
+    // Chiqishdan oldin yuborilmagan o'zgarishlarni bulutga jo'natamiz
+    try { await flushPush(); } catch { /* internet yo'q — mahalliy qoladi */ }
     logout();
     setCurrentUser(null);
     setDataReady(false);
     setPaywallOpen(false);
     setShowPayPage(false);
+    setMobileNavOpen(false);
+  }
+
+  function handleNavigate(pageId) {
+    setActivePage(pageId);
+    setMobileNavOpen(false);
+  }
+
+  // ——— PAROL TIKLASH EKRANI (hamma narsadan ustun) ———
+  if (recoveryMode) {
+    return (
+      <AuthPage
+        initialMode="reset"
+        onAuth={(u) => { setRecoveryMode(false); setCurrentUser(u); }}
+      />
+    );
   }
 
   if (!currentUser) {
     return <AuthPage onAuth={setCurrentUser} />;
   }
 
+  // ——— Sinxronizatsiya davomida qisqa yuklanish ekrani ———
+  if (syncing && !dataReady) {
+    return (
+      <div style={{
+        minHeight: "100vh", display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", gap: 14,
+        background: "linear-gradient(135deg,#0f172a,#1e1b4b)", color: "#fff",
+      }}>
+        <div style={{ fontSize: 40 }}>☁️</div>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>Ma'lumotlar yuklanmoqda...</div>
+        <div style={{ fontSize: 13, opacity: .7 }}>Bulut bilan sinxronlanmoqda</div>
+      </div>
+    );
+  }
+
   // ——— Obuna nazorati (MEHMON REJIMI) ———
-  // To'lov qilinmagan / muddati tugagan foydalanuvchi platformaga KIRADI,
-  // hammasini KO'RA OLADI, lekin biror amal qilmoqchi bo'lsa to'lov oynasi chiqadi.
   const subState = checkSubscription(currentUser);
   const locked = subState.blocked;
 
-  // Foydalanuvchi "To'lov qilish"ni bossagina to'liq to'lov sahifasi ochiladi
   if (locked && showPayPage) {
     return (
       <>
@@ -191,22 +312,20 @@ export default function App() {
           onLogout={handleLogout}
           onUnlocked={() => {
             setShowPayPage(false);
-            setCurrentUser(getCurrentUser()); // serverdan yangilangan profil
+            setCurrentUser(getCurrentUser());
           }}
         />
       </>
     );
   }
 
-  // Mehmon rejimida asosiy kontentdagi har qanday interaktiv element
-  // (tugma, select, input, havola) bosilganda to'lov oynasi ochiladi.
   function guardClick(e) {
     if (!locked) return;
     const el = e.target.closest?.(
       "button, a, input, select, textarea, label, [role='button'], .btn"
     );
     if (!el) return;
-    if (el.closest("[data-pw-allow]")) return; // ruxsat berilgan elementlar (banner tugmasi)
+    if (el.closest("[data-pw-allow]")) return;
     e.preventDefault();
     e.stopPropagation();
     setPaywallOpen(true);
@@ -258,14 +377,32 @@ export default function App() {
   return (
     <>
       <div className="app-layout">
+        <button
+          type="button"
+          className="mobile-nav-toggle"
+          onClick={() => setMobileNavOpen(true)}
+          aria-label="Menyuni ochish"
+          title="Menyu"
+        >
+          ☰
+        </button>
+
+        <div
+          className={`sidebar-backdrop ${mobileNavOpen ? "show" : ""}`}
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+
         <Sidebar
           activePage={activePage}
-          setActivePage={setActivePage}
+          setActivePage={handleNavigate}
           schoolName={settings.schoolName}
           currentUser={currentUser}
           onLogout={handleLogout}
           darkMode={darkMode}
           setDarkMode={setDarkMode}
+          mobileOpen={mobileNavOpen}
+          onCloseMobile={() => setMobileNavOpen(false)}
         />
         <main
           className="main-content"
@@ -318,7 +455,6 @@ export default function App() {
           <div key={t.id} className={`toast ${t.type}`}>{t.message}</div>
         ))}
       </div>
-
     </>
   );
 }

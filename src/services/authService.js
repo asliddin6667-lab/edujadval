@@ -1,21 +1,26 @@
 // =====================================================================
 //  EDUJADVAL.UZ — Auth xizmati (Supabase Auth + profiles jadvali)
 //
-//  MUHIM O'ZGARISH: hisoblar endi localStorage'da EMAS — Supabase'da.
-//  - Parollar serverda xeshlanib saqlanadi (bexatar)
-//  - Ro'yxatdan o'tish/kirish istalgan qurilmadan ishlaydi
-//  - Superadmin obunani o'z kompyuteridan yoqadi — mijozda darhol ochiladi
+//  O'ZGARISHLAR:
+//  - QURILMA CHEKLOVI OLIB TASHLANDI. Foydalanuvchi istalgan
+//    kompyuter/telefondan email+parol bilan kira oladi.
+//  - PAROLNI TIKLASH qo'shildi:
+//      1-yo'l: email orqali (sendPasswordReset -> completePasswordReset)
+//      2-yo'l: superadmin orqali (adminResetPassword)
 //
 //  Sessiya kesh: profil ma'lumotlari localStorage'da keshlanadi, shu
 //  sababli getCurrentUser() va checkSubscription() SINXRON qolgan —
 //  App.jsx va boshqa sahifalar o'zgarishsiz ishlayveradi.
 // =====================================================================
 import { loadData, saveData, removeData } from "./storageService";
-import { checkAndRegisterDevice } from "./deviceLock";
-import { supabase } from "./supabaseClient";
+import {
+  supabase,
+  SUPABASE_FN_URL,
+  ANON_KEY,
+  getResetRedirectUrl,
+} from "./supabaseClient";
 
 const SESSION_KEY = "auth_current_user";
-const DEMO_EMAIL = "demo@edujadval.uz";
 
 // Foydalanuvchi ko'radigan unikal ID: EDU-XXXXXX
 function genUid() {
@@ -78,14 +83,7 @@ export function logout() {
 }
 
 // ---------------------------------------------------------------------
-//  QURILMA CHEKLOVI: superadmin va demo hisob ozod
-// ---------------------------------------------------------------------
-function isDeviceLockExempt(user) {
-  return user.role === "superadmin" || user.email === DEMO_EMAIL;
-}
-
-// ---------------------------------------------------------------------
-//  KIRISH
+//  KIRISH — endi qurilma cheklovisiz
 // ---------------------------------------------------------------------
 export async function login(email, password) {
   const normalized = email.trim().toLowerCase();
@@ -98,6 +96,9 @@ export async function login(email, password) {
   if (error) {
     if (/invalid login credentials/i.test(error.message)) {
       throw new Error("Email yoki parol noto'g'ri");
+    }
+    if (/email not confirmed/i.test(error.message)) {
+      throw new Error("Email tasdiqlanmagan. Pochtangizni tekshiring.");
     }
     if (/fetch|network/i.test(error.message)) {
       throw new Error("Server bilan aloqa yo'q. Internetni tekshiring.");
@@ -116,28 +117,11 @@ export async function login(email, password) {
     throw new Error("Bu foydalanuvchi bloklangan");
   }
 
-  // Qurilma tekshiruvi (1 profil = 1 qurilma)
-  if (!isDeviceLockExempt(user)) {
-    const deviceCheck = await checkAndRegisterDevice(user.uid || user.id);
-    if (deviceCheck.status === "locked") {
-      await supabase.auth.signOut();
-      const err = new Error(deviceCheck.message);
-      err.code = "DEVICE_LOCKED";
-      err.uid = user.uid || user.id;
-      err.deviceName = deviceCheck.deviceName;
-      throw err;
-    }
-    if (deviceCheck.status === "offline" || deviceCheck.status === "error") {
-      await supabase.auth.signOut();
-      throw new Error(deviceCheck.message);
-    }
-  }
-
   return setCurrentUser(user);
 }
 
 // ---------------------------------------------------------------------
-//  RO'YXATDAN O'TISH (endi async!)
+//  RO'YXATDAN O'TISH
 // ---------------------------------------------------------------------
 export async function registerUser({ name, email, password, schoolName }) {
   const normalized = email.trim().toLowerCase();
@@ -169,14 +153,75 @@ export async function registerUser({ name, email, password, schoolName }) {
   }
 
   // signUp avtomatik kirg'izib qo'yadi — eski oqim saqlansin
-  // ("Ro'yxatdan o'tdingiz, endi login qiling")
   await supabase.auth.signOut();
   return true;
 }
 
+// =====================================================================
+//  PAROLNI TIKLASH — 1-YO'L: EMAIL ORQALI
+// =====================================================================
+
+// Foydalanuvchi emailiga tiklash havolasini yuboradi.
+// Havola bosilganda sayt ?mode=reset bilan ochiladi va
+// Supabase avtomatik vaqtinchalik sessiya beradi.
+export async function sendPasswordReset(email) {
+  const normalized = (email || "").trim().toLowerCase();
+  if (!normalized.includes("@")) throw new Error("Email noto'g'ri");
+
+  const { error } = await supabase.auth.resetPasswordForEmail(normalized, {
+    redirectTo: getResetRedirectUrl(),
+  });
+
+  if (error) {
+    if (/rate limit|too many/i.test(error.message)) {
+      throw new Error("Juda ko'p urinish. Bir necha daqiqadan so'ng qayta urinib ko'ring.");
+    }
+    if (/fetch|network/i.test(error.message)) {
+      throw new Error("Server bilan aloqa yo'q. Internetni tekshiring.");
+    }
+    throw new Error(error.message);
+  }
+
+  // Xavfsizlik uchun "email topilmadi" deb aytmaymiz —
+  // aks holda kimningdir ro'yxatda borligini bilib olish mumkin bo'ladi.
+  return true;
+}
+
+// Tiklash havolasidan kelgan foydalanuvchi yangi parolni o'rnatadi.
+export async function completePasswordReset(newPassword) {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("Parol kamida 6 ta belgi bo'lsin");
+  }
+
+  const { data: sess } = await supabase.auth.getSession();
+  if (!sess?.session) {
+    throw new Error("Tiklash havolasi eskirgan. Yangi havola so'rang.");
+  }
+
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw new Error(error.message);
+
+  // Yangi parol bilan qaytadan kirsin
+  await supabase.auth.signOut();
+  removeData(SESSION_KEY);
+  return true;
+}
+
+// URL'da tiklash rejimi bormi? (?mode=reset yoki #type=recovery)
+export function isPasswordRecoveryUrl() {
+  const search = window.location.search || "";
+  const hash = window.location.hash || "";
+  return search.includes("mode=reset") || hash.includes("type=recovery");
+}
+
+// Tiklash tugagach URL'ni tozalaymiz (token ko'rinib turmasin)
+export function clearRecoveryUrl() {
+  const clean = window.location.origin + window.location.pathname;
+  window.history.replaceState({}, document.title, clean);
+}
+
 // ---------------------------------------------------------------------
 //  SESSIYANI YANGILASH (App yuklanganda fonda chaqiriladi)
-//  Natija: yangilangan user yoki null (sessiya tugagan/blok)
 // ---------------------------------------------------------------------
 export async function refreshCurrentUser() {
   const cached = getCurrentUser();
@@ -184,7 +229,6 @@ export async function refreshCurrentUser() {
 
   const { data } = await supabase.auth.getSession();
   if (!data?.session) {
-    // Supabase sessiyasi tugagan — chiqib ketamiz
     removeData(SESSION_KEY);
     return null;
   }
@@ -227,8 +271,6 @@ export function checkSubscription(user) {
   return { blocked: status !== "active", status, expiresAt: sub.expiresAt, daysLeft, uid: user.uid };
 }
 
-// Obunani serverdan qayta o'qib, keshni yangilaydi.
-// Subscription sahifasidagi "Tekshirish" tugmasi uchun.
 export async function refreshSubscription() {
   const fresh = await refreshCurrentUser();
   return checkSubscription(fresh || getCurrentUser());
@@ -236,21 +278,17 @@ export async function refreshSubscription() {
 
 // ---------------------------------------------------------------------
 //  O'Z PROFILINI TAHRIRLASH
-//  - ism/maktab: profiles jadvalida
-//  - email/parol: Supabase Auth orqali
 // ---------------------------------------------------------------------
 export async function updateOwnProfile({ name, schoolName, email, password }) {
   const cached = getCurrentUser();
   if (!cached) throw new Error("Avval tizimga kiring");
 
-  // 1) Ism va maktab
   const { error: pErr } = await supabase
     .from("profiles")
     .update({ name: name.trim(), school_name: (schoolName || "").trim() })
     .eq("id", cached.id);
   if (pErr) throw new Error("Profilni saqlashda xato: " + pErr.message);
 
-  // 2) Email / parol (kiritilgan bo'lsa)
   const authPatch = {};
   const newEmail = email?.trim().toLowerCase();
   if (newEmail && newEmail !== cached.email) authPatch.email = newEmail;
@@ -266,7 +304,6 @@ export async function updateOwnProfile({ name, schoolName, email, password }) {
       }
       throw new Error(aErr.message);
     }
-    // Email profiles jadvalida ham yangilanadi
     if (authPatch.email) {
       await supabase.from("profiles").update({ email: authPatch.email }).eq("id", cached.id);
     }
@@ -276,7 +313,7 @@ export async function updateOwnProfile({ name, schoolName, email, password }) {
 }
 
 // =====================================================================
-//  SUPERADMIN FUNKSIYALARI (barchasi serverda tekshiriladi)
+//  SUPERADMIN FUNKSIYALARI
 // =====================================================================
 
 export async function fetchAllUsers() {
@@ -329,4 +366,49 @@ export async function adminCreateUser({ name, email, password, schoolName, role 
     p_role: role,
   });
   if (error) throw new Error(error.message);
+}
+
+// =====================================================================
+//  PAROLNI TIKLASH — 2-YO'L: SUPERADMIN TO'G'RIDAN-TO'G'RI O'RNATADI
+//
+//  Bu Edge Function orqali ishlaydi, chunki parolni boshqa
+//  foydalanuvchiga o'rnatish uchun service_role kaliti kerak —
+//  uni brauzerga qo'yish MUMKIN EMAS.
+//
+//  Deploy: supabase functions deploy admin-reset-password
+// =====================================================================
+export async function adminResetPassword(targetUserId, newPassword) {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("Parol kamida 6 ta belgi bo'lsin");
+  }
+
+  const { data: sess } = await supabase.auth.getSession();
+  const token = sess?.session?.access_token;
+  if (!token) throw new Error("Sessiya topilmadi. Qaytadan kiring.");
+
+  let res;
+  try {
+    res = await fetch(`${SUPABASE_FN_URL}/admin-reset-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: ANON_KEY,
+      },
+      body: JSON.stringify({ targetUserId, newPassword }),
+    });
+  } catch {
+    throw new Error("Server bilan aloqa yo'q. Internetni tekshiring.");
+  }
+
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error || `Xatolik (${res.status})`);
+  }
+  return true;
+}
+
+// Superadmin foydalanuvchiga tiklash xatini yuboradi (Edge Function shart emas)
+export async function adminSendPasswordReset(email) {
+  return sendPasswordReset(email);
 }

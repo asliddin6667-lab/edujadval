@@ -4,26 +4,32 @@ import {
   adminUpdateProfile, adminDeleteUser,
   activateSubscription, deactivateSubscription,
   updateOwnProfile,
+  adminResetPassword, adminSendPasswordReset,
 } from "../services/authService";
-import { resetUserDevice, listDevices } from "../services/deviceLock";
 
 // =====================================================================
-//  FOYDALANUVCHILAR (Superadmin paneli) — endi Supabase bilan ishlaydi.
-//  Barcha amallar serverda tekshiriladi; obuna faollashtirilsa mijozda
-//  darhol kuchga kiradi (u "Tekshirish" bosishi yoki sahifani yangilashi
-//  kifoya).
+//  FOYDALANUVCHILAR (Superadmin paneli)
+//
+//  O'ZGARISHLAR:
+//  - Qurilma bog'lash/tiklash butunlay olib tashlandi (cheklov yo'q).
+//  - "🔑 Parol" — superadmin foydalanuvchiga yangi parol o'rnatadi
+//    (Edge Function orqali).
+//  - "✉️ Tiklash xati" — foydalanuvchi emailiga tiklash havolasi ketadi.
 // =====================================================================
 export default function UsersPage({ currentUser, toast }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false); // amal bajarilayotganda tugmalarni bloklash
+  const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", password: "", schoolName: "", role: "user" });
   const [showForm, setShowForm] = useState(false);
-  const [devices, setDevices] = useState({}); // { 'EDU-XXXXXX': { device_name, ... } }
 
   // Tahrirlash
   const [editUser, setEditUser] = useState(null);
   const [editForm, setEditForm] = useState({ name: "", email: "", password: "", schoolName: "" });
+
+  // Parol yangilash oynasi
+  const [pwUser, setPwUser] = useState(null);
+  const [pwValue, setPwValue] = useState("");
 
   async function loadUsers() {
     try {
@@ -39,11 +45,9 @@ export default function UsersPage({ currentUser, toast }) {
 
   useEffect(() => {
     loadUsers();
-    listDevices().then(setDevices);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Har bir server amali uchun umumiy o'ram: busy holat + xatolik + qayta yuklash
   async function run(action, okMsg, okType = "success") {
     if (busy) return;
     setBusy(true);
@@ -79,11 +83,7 @@ export default function UsersPage({ currentUser, toast }) {
   function removeUser(user) {
     if (user.id === currentUser.id) return toast("O'zingizni o'chira olmaysiz", "warning");
     if (!confirm(`${user.email} butunlay o'chirilsinmi?\nBu amalni qaytarib bo'lmaydi.`)) return;
-    run(async () => {
-      await adminDeleteUser(user.id);
-      // Qurilma bog'lamasi ham tozalanadi (email qayta ishlatilsa muammo bo'lmasin)
-      await resetUserDevice(user.uid || user.id);
-    }, "Foydalanuvchi o'chirildi", "error");
+    run(() => adminDeleteUser(user.id), "Foydalanuvchi o'chirildi", "error");
   }
 
   function changeRole(user, role) {
@@ -101,14 +101,40 @@ export default function UsersPage({ currentUser, toast }) {
   }
 
   // ------------------------------------------------------------------
+  //  PAROL BOSHQARUVI
+  // ------------------------------------------------------------------
+  function startPwReset(u) {
+    setPwUser(u);
+    setPwValue("");
+    setEditUser(null);
+    setShowForm(false);
+  }
+
+  function savePassword() {
+    if (pwValue.length < 6) return toast("Parol kamida 6 ta belgi bo'lsin", "warning");
+    run(async () => {
+      await adminResetPassword(pwUser.id, pwValue);
+      const shown = pwValue;
+      setPwUser(null);
+      setPwValue("");
+      toast(`Parol o'rnatildi. Foydalanuvchiga yuboring: ${shown}`, "success");
+    });
+  }
+
+  function sendResetMail(u) {
+    if (!u.email) return toast("Bu hisobda email yo'q", "warning");
+    if (!confirm(`${u.email} manziliga parolni tiklash havolasi yuborilsinmi?`)) return;
+    run(() => adminSendPasswordReset(u.email), "Tiklash xati yuborildi ✓");
+  }
+
+  // ------------------------------------------------------------------
   //  TAHRIRLASH
-  //  - O'zingiz: ism, maktab, email, parol (Supabase Auth orqali)
-  //  - Boshqalar: ism va maktab (email/parolni faqat egasi o'zgartiradi)
   // ------------------------------------------------------------------
   function startEdit(u) {
     setEditUser(u);
     setEditForm({ name: u.name || "", email: u.email || "", password: "", schoolName: u.schoolName || "" });
     setShowForm(false);
+    setPwUser(null);
   }
 
   function handleEditSave() {
@@ -145,37 +171,6 @@ export default function UsersPage({ currentUser, toast }) {
     return { text: "To'lov qilmagan", cls: "badge-danger" };
   }
 
-  // ------------------------------------------------------------------
-  //  QURILMA BOSHQARUVI (1 profil = 1 qurilma)
-  // ------------------------------------------------------------------
-  function deviceKey(u) {
-    return u.uid || u.id;
-  }
-
-  async function handleResetDevice(u) {
-    if (!confirm(`${u.email} qurilmasi tiklansinmi?\nU keyingi kirishda yangi qurilmasiga bog'lanadi.`)) return;
-    const res = await resetUserDevice(deviceKey(u));
-    toast(res.message, res.ok ? "success" : "warning");
-    if (res.ok) {
-      setDevices(prev => {
-        const next = { ...prev };
-        delete next[deviceKey(u)];
-        return next;
-      });
-    }
-  }
-
-  function deviceLabel(u) {
-    if (u.role === "superadmin") return null; // superadmin cheklovdan ozod
-    const d = devices[deviceKey(u)];
-    if (!d) return <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>📱 Qurilma bog'lanmagan</span>;
-    return (
-      <span style={{ fontSize: 11, color: "#059669", fontWeight: 600 }}>
-        📱 {d.device_name || "Qurilma bog'langan"}
-      </span>
-    );
-  }
-
   const isSelfEdit = editUser && editUser.id === currentUser.id;
 
   return (
@@ -183,15 +178,49 @@ export default function UsersPage({ currentUser, toast }) {
       <div className="page-header">
         <div>
           <div className="page-title">Foydalanuvchilar</div>
-          <div className="page-subtitle">Super Admin paneli: user yaratish, bloklash va rollarni boshqarish</div>
+          <div className="page-subtitle">Super Admin paneli: user yaratish, bloklash, rol va parol boshqaruvi</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn btn-secondary" onClick={loadUsers} disabled={loading}>⟳ Yangilash</button>
-          <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditUser(null); }}>＋ Foydalanuvchi yaratish</button>
+          <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditUser(null); setPwUser(null); }}>＋ Foydalanuvchi yaratish</button>
         </div>
       </div>
 
       <div className="page-body">
+        {/* ---------------- PAROL YANGILASH OYNASI ---------------- */}
+        {pwUser && (
+          <div className="card" style={{ marginBottom: 18, border: "2px solid #f59e0b" }}>
+            <div className="card-body">
+              <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                🔑 Parolni yangilash: {pwUser.email}
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 12 }}>
+                Yangi parolni siz o'rnatasiz. Uni foydalanuvchiga o'zingiz yetkazing —
+                keyin u Sozlamalar bo'limidan o'zgartirib olishi mumkin.
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Yangi parol</label>
+                  <input
+                    className="form-control"
+                    value={pwValue}
+                    onChange={e => setPwValue(e.target.value)}
+                    placeholder="Kamida 6 belgi"
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div className="form-group" style={{ display: "flex", alignItems: "end", gap: 8 }}>
+                  <button className="btn btn-primary" onClick={savePassword} disabled={busy}>
+                    {busy ? "Saqlanmoqda..." : "Parolni o'rnatish"}
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => setPwUser(null)}>Bekor</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---------------- TAHRIRLASH ---------------- */}
         {editUser && (
           <div className="card" style={{ marginBottom: 18, border: "2px solid #6366f1" }}>
             <div className="card-body">
@@ -222,8 +251,7 @@ export default function UsersPage({ currentUser, toast }) {
                 </div>
               ) : (
                 <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 10 }}>
-                  ℹ️ Email va parolni faqat foydalanuvchining o'zi o'zgartira oladi (xavfsizlik uchun).
-                  Parolini unutgan bo'lsa: hisobini o'chirib, xuddi shu email bilan qayta yaratib bering.
+                  ℹ️ Parolni o'zgartirish uchun jadvaldagi <b>🔑 Parol</b> tugmasidan foydalaning.
                 </div>
               )}
               <div style={{ display: "flex", gap: 8 }}>
@@ -234,6 +262,7 @@ export default function UsersPage({ currentUser, toast }) {
           </div>
         )}
 
+        {/* ---------------- YANGI FOYDALANUVCHI ---------------- */}
         {showForm && (
           <div className="card" style={{ marginBottom: 18 }}>
             <div className="card-body">
@@ -274,6 +303,7 @@ export default function UsersPage({ currentUser, toast }) {
           </div>
         )}
 
+        {/* ---------------- JADVAL ---------------- */}
         <div className="card">
           <div className="card-body">
             {loading ? (
@@ -301,7 +331,6 @@ export default function UsersPage({ currentUser, toast }) {
                       <strong>{u.name}</strong>
                       <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{u.email}</div>
                       <div style={{ fontSize: 11.5, fontWeight: 800, color: "#6366f1", letterSpacing: .5 }}>{u.uid || "—"}</div>
-                      <div>{deviceLabel(u)}</div>
                     </td>
                     <td>{u.schoolName || "—"}</td>
                     <td>
@@ -326,10 +355,9 @@ export default function UsersPage({ currentUser, toast }) {
                     <td>
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <button className="btn btn-info btn-sm" title="Ism va maktabni o'zgartirish" onClick={() => startEdit(u)} disabled={busy}>✏️ Tahrirlash</button>
+                        <button className="btn btn-warning btn-sm" title="Yangi parol o'rnatish" onClick={() => startPwReset(u)} disabled={busy}>🔑 Parol</button>
+                        <button className="btn btn-secondary btn-sm" title="Foydalanuvchi emailiga tiklash havolasini yuborish" onClick={() => sendResetMail(u)} disabled={busy}>✉️ Tiklash xati</button>
                         <button className="btn btn-warning btn-sm" onClick={() => toggleStatus(u)} disabled={busy}>{u.status === "active" ? "Bloklash" : "Faollashtirish"}</button>
-                        {u.role !== "superadmin" && devices[deviceKey(u)] && (
-                          <button className="btn btn-secondary btn-sm" title="Qurilmani tiklash — foydalanuvchi yangi kompyuterdan kira oladi" onClick={() => handleResetDevice(u)} disabled={busy}>🔓 Tiklash</button>
-                        )}
                         <button className="btn btn-danger btn-sm" onClick={() => removeUser(u)} disabled={busy}>O'chirish</button>
                       </div>
                     </td>

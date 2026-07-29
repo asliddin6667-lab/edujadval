@@ -25,6 +25,8 @@ export default function Sidebar({
   onLogout,
   darkMode,
   setDarkMode,
+  mobileOpen = false,
+  onCloseMobile,
 }) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -46,8 +48,21 @@ export default function Sidebar({
   );
 
   return (
-    <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
+    <aside
+      className={`sidebar ${collapsed ? "collapsed" : ""} ${mobileOpen ? "mobile-open" : ""}`}
+    >
       <div className="sidebar-logo sidebar-logo-image">
+        {/* Faqat kichik ekranlarda ko'rinadi (CSS: .sidebar-close) */}
+        <button
+          type="button"
+          className="sidebar-close"
+          onClick={() => onCloseMobile?.()}
+          aria-label="Menyuni yopish"
+          title="Yopish"
+        >
+          ✕
+        </button>
+
         <img
           src={`${import.meta.env.BASE_URL}logo.png`}
           alt="Edujadval.uz"
