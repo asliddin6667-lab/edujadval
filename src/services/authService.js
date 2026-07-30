@@ -40,6 +40,7 @@ function profileToUser(p) {
     uid: p.uid,
     name: p.name || "",
     email: p.email || "",
+    phone: p.phone || "",
     role: p.role || "user",
     status: p.status || "active",
     schoolName: p.school_name || "",
@@ -61,6 +62,27 @@ async function fetchOwnProfile(authUserId) {
     .single();
   if (error || !data) return null;
   return profileToUser(data);
+}
+
+// ---------------------------------------------------------------------
+//  TELEFON RAQAM
+//  Bazada bir xil ko'rinishda saqlanadi: +998901234567
+//  Foydalanuvchi qanday yozsa ham (bo'shliq, qavs, chiziqcha) tozalanadi.
+// ---------------------------------------------------------------------
+export function normalizePhone(raw) {
+  const d = String(raw || "").replace(/\D/g, "");
+  if (d.length === 9) return "+998" + d;                          // 901234567
+  if (d.length === 12 && d.startsWith("998")) return "+" + d;      // 998901234567
+  return null;                                                    // noto'g'ri
+}
+
+// Ekranda chiroyli ko'rsatish: +998 90 123 45 67
+export function formatPhone(value) {
+  const d = String(value || "").replace(/\D/g, "");
+  const n = d.startsWith("998") ? d.slice(3) : d;
+  if (!n) return "";
+  const p = [n.slice(0, 2), n.slice(2, 5), n.slice(5, 7), n.slice(7, 9)].filter(Boolean);
+  return "+998 " + p.join(" ");
 }
 
 // ---------------------------------------------------------------------
@@ -123,20 +145,26 @@ export async function login(email, password) {
 // ---------------------------------------------------------------------
 //  RO'YXATDAN O'TISH
 // ---------------------------------------------------------------------
-export async function registerUser({ name, email, password, schoolName }) {
+export async function registerUser({ name, email, password, schoolName, phone }) {
   const normalized = email.trim().toLowerCase();
 
+  if (!schoolName?.trim()) throw new Error("Maktab nomini kiriting");
   if (!name.trim()) throw new Error("Ism kiriting");
+
+  const tel = normalizePhone(phone);
+  if (!tel) throw new Error("Telefon raqamni to'g'ri kiriting: +998 90 123 45 67");
+
   if (!normalized.includes("@")) throw new Error("Email noto'g'ri");
   if (password.length < 6) throw new Error("Parol kamida 6 ta belgi bo'lsin");
 
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email: normalized,
     password,
     options: {
       data: {
         name: name.trim(),
-        school_name: schoolName?.trim() || "Maktab",
+        school_name: schoolName.trim(),
+        phone: tel,
         uid: genUid(),
       },
     },
@@ -152,7 +180,17 @@ export async function registerUser({ name, email, password, schoolName }) {
     throw new Error(error.message);
   }
 
-  // signUp avtomatik kirg'izib qo'yadi — eski oqim saqlansin
+  // Telefonni profil qatoriga yozamiz.
+  // signUp foydalanuvchini vaqtincha kirgizib qo'yadi, shu sababli
+  // o'z qatorini yangilashga RLS ruxsat beradi.
+  if (data?.user?.id) {
+    await supabase
+      .from("profiles")
+      .update({ phone: tel })
+      .eq("id", data.user.id);
+  }
+
+  // Eski oqim saqlansin: "Ro'yxatdan o'tdingiz, endi login qiling"
   await supabase.auth.signOut();
   return true;
 }
@@ -279,13 +317,25 @@ export async function refreshSubscription() {
 // ---------------------------------------------------------------------
 //  O'Z PROFILINI TAHRIRLASH
 // ---------------------------------------------------------------------
-export async function updateOwnProfile({ name, schoolName, email, password }) {
+export async function updateOwnProfile({ name, schoolName, email, password, phone }) {
   const cached = getCurrentUser();
   if (!cached) throw new Error("Avval tizimga kiring");
 
+  const patch = {
+    name: name.trim(),
+    school_name: (schoolName || "").trim(),
+  };
+
+  // Telefon kiritilgan bo'lsa — tekshirib qo'shamiz
+  if (phone !== undefined && String(phone).trim() !== "") {
+    const tel = normalizePhone(phone);
+    if (!tel) throw new Error("Telefon raqamni to'g'ri kiriting: +998 90 123 45 67");
+    patch.phone = tel;
+  }
+
   const { error: pErr } = await supabase
     .from("profiles")
-    .update({ name: name.trim(), school_name: (schoolName || "").trim() })
+    .update(patch)
     .eq("id", cached.id);
   if (pErr) throw new Error("Profilni saqlashda xato: " + pErr.message);
 
@@ -342,6 +392,19 @@ export async function adminSetStatus(userId, status) {
 
 export async function adminSetRole(userId, role) {
   const { error } = await supabase.rpc("admin_set_role", { target: userId, new_role: role });
+  if (error) throw new Error(error.message);
+}
+
+// Superadmin boshqa foydalanuvchining telefonini o'zgartiradi
+export async function adminSetPhone(userId, phone) {
+  const tel = String(phone || "").trim() === "" ? null : normalizePhone(phone);
+  if (phone && !tel) {
+    throw new Error("Telefon raqamni to'g'ri kiriting: +998 90 123 45 67");
+  }
+  const { error } = await supabase.rpc("admin_set_phone", {
+    target: userId,
+    new_phone: tel,
+  });
   if (error) throw new Error(error.message);
 }
 

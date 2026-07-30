@@ -16,11 +16,19 @@ const ADMIN_TELEGRAM = "https://t.me/+998941366667";
 const ADMIN_PHONE = "+998 94 136 66 67";
 const ADMIN_NAME = "Asliddin_Muhiddinovich";
 
+// Telefon raqamni yozayotganda chiroyli ajratadi: 90 123 45 67
+function formatLocalPhone(value) {
+  const d = String(value || "").replace(/\D/g, "").slice(0, 9);
+  return [d.slice(0, 2), d.slice(2, 5), d.slice(5, 7), d.slice(7, 9)]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export default function AuthPage({ onAuth, initialMode = "login" }) {
   const savedEmail = localStorage.getItem("edu_remember_email") || "";
   // Faqat login/register rejimlari mavjud; boshqasi kelsa login'ga tushadi
   const [mode, setMode] = useState(initialMode === "register" ? "register" : "login");
-  const [form, setForm] = useState({ name: "", email: savedEmail, password: "", schoolName: "" });
+  const [form, setForm] = useState({ name: "", email: savedEmail, password: "", schoolName: "", phone: "" });
   const [remember, setRemember] = useState(!!savedEmail);
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState("");
@@ -167,6 +175,19 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
             {!isLogin && (
               <>
                 <div className="edu-field">
+                  <label className="edu-field__label">MAKTAB NOMI</label>
+                  <div className="edu-field__wrap">
+                    <span className="edu-field__icon">🏫</span>
+                    <input
+                      className="edu-field__input"
+                      value={form.schoolName}
+                      onChange={e => update("schoolName", e.target.value)}
+                      placeholder="Turon odob-ilm maktabi"
+                    />
+                  </div>
+                </div>
+
+                <div className="edu-field">
                   <label className="edu-field__label">ISM FAMILIYA</label>
                   <div className="edu-field__wrap">
                     <span className="edu-field__icon">👤</span>
@@ -178,15 +199,24 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
                     />
                   </div>
                 </div>
+
                 <div className="edu-field">
-                  <label className="edu-field__label">MAKTAB NOMI</label>
+                  <label className="edu-field__label">TELEFON RAQAM</label>
                   <div className="edu-field__wrap">
-                    <span className="edu-field__icon">🏫</span>
+                    <span className="edu-field__icon">📞</span>
+                    <span style={{
+                      fontSize: 14.5, fontWeight: 700, color: "#475569",
+                      paddingRight: 6, whiteSpace: "nowrap",
+                    }}>+998</span>
                     <input
                       className="edu-field__input"
-                      value={form.schoolName}
-                      onChange={e => update("schoolName", e.target.value)}
-                      placeholder="Turon odob-ilm maktabi"
+                      style={{ paddingLeft: 4 }}
+                      type="tel"
+                      inputMode="numeric"
+                      value={form.phone}
+                      onChange={e => update("phone", formatLocalPhone(e.target.value))}
+                      placeholder="90 123 45 67"
+                      autoComplete="tel-national"
                     />
                   </div>
                 </div>

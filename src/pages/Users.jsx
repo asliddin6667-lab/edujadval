@@ -4,7 +4,7 @@ import {
   adminUpdateProfile, adminDeleteUser,
   activateSubscription, deactivateSubscription,
   updateOwnProfile,
-  adminResetPassword,
+  adminResetPassword, adminSetPhone, formatPhone,
 } from "../services/authService";
 
 // =====================================================================
@@ -21,12 +21,12 @@ export default function UsersPage({ currentUser, toast }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", password: "", schoolName: "", role: "user" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", schoolName: "", phone: "", role: "user" });
   const [showForm, setShowForm] = useState(false);
 
   // Tahrirlash
   const [editUser, setEditUser] = useState(null);
-  const [editForm, setEditForm] = useState({ name: "", email: "", password: "", schoolName: "" });
+  const [editForm, setEditForm] = useState({ name: "", email: "", password: "", schoolName: "", phone: "" });
 
   // Parol yangilash oynasi
   const [pwUser, setPwUser] = useState(null);
@@ -75,8 +75,16 @@ export default function UsersPage({ currentUser, toast }) {
     if (password.length < 6) return toast("Parol kamida 6 ta belgi bo'lsin", "warning");
     run(async () => {
       await adminCreateUser(form);
+      // admin_create_user telefonni qabul qilmaydi — yaratilgach alohida yozamiz
+      if (form.phone.trim()) {
+        const list = await fetchAllUsers();
+        const created = list.find(
+          (u) => (u.email || "").toLowerCase() === email.trim().toLowerCase()
+        );
+        if (created) await adminSetPhone(created.id, form.phone);
+      }
       setShowForm(false);
-      setForm({ name: "", email: "", password: "", schoolName: "", role: "user" });
+      setForm({ name: "", email: "", password: "", schoolName: "", phone: "", role: "user" });
     }, "Foydalanuvchi yaratildi ✓");
   }
 
@@ -132,7 +140,10 @@ export default function UsersPage({ currentUser, toast }) {
   // ------------------------------------------------------------------
   function startEdit(u) {
     setEditUser(u);
-    setEditForm({ name: u.name || "", email: u.email || "", password: "", schoolName: u.schoolName || "" });
+    setEditForm({
+      name: u.name || "", email: u.email || "", password: "",
+      schoolName: u.schoolName || "", phone: u.phone || "",
+    });
     setShowForm(false);
     setPwUser(null);
   }
@@ -153,6 +164,7 @@ export default function UsersPage({ currentUser, toast }) {
     } else {
       run(async () => {
         await adminUpdateProfile(editUser.id, name, editForm.schoolName);
+        await adminSetPhone(editUser.id, editForm.phone);
         setEditUser(null);
       }, "Foydalanuvchi yangilandi ✓");
     }
@@ -207,9 +219,18 @@ export default function UsersPage({ currentUser, toast }) {
     if (subFilter !== "all" && subState(u) !== subFilter) return false;
     // Matn qidiruvi
     if (!q) return true;
-    return [u.uid, u.email, u.name, u.schoolName]
-      .filter(Boolean)
-      .some((field) => String(field).toLowerCase().includes(q));
+    if (
+      [u.uid, u.email, u.name, u.schoolName]
+        .filter(Boolean)
+        .some((field) => String(field).toLowerCase().includes(q))
+    ) return true;
+    // Telefon: faqat raqamlar bo'yicha solishtiramiz, shunda
+    // "901234567" ham, "+998 90 123" ham topadi
+    const qDigits = q.replace(/\D/g, "");
+    if (qDigits && u.phone) {
+      return String(u.phone).replace(/\D/g, "").includes(qDigits);
+    }
+    return false;
   });
 
   const SUB_TABS = [
@@ -284,6 +305,19 @@ export default function UsersPage({ currentUser, toast }) {
                   <input className="form-control" value={editForm.schoolName} onChange={e => setEditForm({ ...editForm, schoolName: e.target.value })} />
                 </div>
               </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Telefon raqam</label>
+                  <input
+                    className="form-control"
+                    type="tel"
+                    value={editForm.phone}
+                    onChange={e => setEditForm({ ...editForm, phone: e.target.value })}
+                    placeholder="+998 90 123 45 67"
+                  />
+                </div>
+                <div className="form-group" />
+              </div>
               {isSelfEdit ? (
                 <div className="form-row">
                   <div className="form-group">
@@ -324,13 +358,26 @@ export default function UsersPage({ currentUser, toast }) {
               </div>
               <div className="form-row">
                 <div className="form-group">
+                  <label className="form-label">Telefon raqam</label>
+                  <input
+                    className="form-control"
+                    type="tel"
+                    value={form.phone}
+                    onChange={e => setForm({ ...form, phone: e.target.value })}
+                    placeholder="+998 90 123 45 67"
+                  />
+                </div>
+                <div className="form-group">
                   <label className="form-label">Email</label>
                   <input className="form-control" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
                 </div>
+              </div>
+              <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">Parol</label>
                   <input className="form-control" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
                 </div>
+                <div className="form-group" />
               </div>
               <div className="form-row">
                 <div className="form-group">
@@ -368,7 +415,7 @@ export default function UsersPage({ currentUser, toast }) {
                   style={{ paddingLeft: 36, paddingRight: 34 }}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="EDU-ID, email, ism yoki maktab nomi..."
+                  placeholder="EDU-ID, email, telefon, ism yoki maktab..."
                   autoComplete="off"
                 />
                 {query && (
@@ -450,6 +497,13 @@ export default function UsersPage({ currentUser, toast }) {
                     <td>
                       <strong>{u.name}</strong>
                       <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{u.email}</div>
+                      {u.phone && (
+                        <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                          📞 <a href={`tel:${u.phone}`} style={{ color: "inherit", textDecoration: "none" }}>
+                            {formatPhone(u.phone)}
+                          </a>
+                        </div>
+                      )}
                       <div style={{ fontSize: 11.5, fontWeight: 800, color: "#6366f1", letterSpacing: .5 }}>{u.uid || "—"}</div>
                     </td>
                     <td>{u.schoolName || "—"}</td>
