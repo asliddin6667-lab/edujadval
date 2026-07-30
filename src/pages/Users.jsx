@@ -32,6 +32,9 @@ export default function UsersPage({ currentUser, toast }) {
   const [pwUser, setPwUser] = useState(null);
   const [pwValue, setPwValue] = useState("");
 
+  // Qidiruv (ID / email / ism / maktab bo'yicha)
+  const [query, setQuery] = useState("");
+
   async function loadUsers() {
     try {
       setLoading(true);
@@ -168,6 +171,19 @@ export default function UsersPage({ currentUser, toast }) {
 
   const isSelfEdit = editUser && editUser.id === currentUser.id;
 
+  // ------------------------------------------------------------------
+  //  QIDIRUV — EDU-ID, email, ism yoki maktab nomi bo'yicha
+  //  Bo'sh joylar va katta-kichik harf farqi hisobga olinmaydi.
+  // ------------------------------------------------------------------
+  const q = query.trim().toLowerCase();
+  const shownUsers = !q
+    ? users
+    : users.filter((u) =>
+        [u.uid, u.email, u.name, u.schoolName]
+          .filter(Boolean)
+          .some((field) => String(field).toLowerCase().includes(q))
+      );
+
   return (
     <div>
       <div className="page-header">
@@ -301,6 +317,47 @@ export default function UsersPage({ currentUser, toast }) {
         {/* ---------------- JADVAL ---------------- */}
         <div className="card">
           <div className="card-body">
+            {/* ---------------- QIDIRUV ---------------- */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              flexWrap: "wrap", marginBottom: 14,
+            }}>
+              <div style={{ position: "relative", flex: "1 1 280px", minWidth: 220 }}>
+                <span style={{
+                  position: "absolute", left: 12, top: "50%",
+                  transform: "translateY(-50%)", fontSize: 15, opacity: .55,
+                  pointerEvents: "none",
+                }}>🔍</span>
+                <input
+                  className="form-control"
+                  style={{ paddingLeft: 36, paddingRight: 34 }}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="EDU-ID, email, ism yoki maktab nomi..."
+                  autoComplete="off"
+                />
+                {query && (
+                  <button
+                    type="button"
+                    onClick={() => setQuery("")}
+                    title="Tozalash"
+                    style={{
+                      position: "absolute", right: 8, top: "50%",
+                      transform: "translateY(-50%)", border: "none",
+                      background: "transparent", cursor: "pointer",
+                      fontSize: 16, lineHeight: 1, color: "var(--text-secondary)",
+                      padding: 4,
+                    }}
+                  >×</button>
+                )}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 600 }}>
+                {q
+                  ? `${shownUsers.length} / ${users.length} foydalanuvchi`
+                  : `Jami: ${users.length} foydalanuvchi`}
+              </div>
+            </div>
+
             {loading ? (
               <div style={{ padding: 30, textAlign: "center", color: "var(--text-secondary)" }}>
                 Yuklanmoqda...
@@ -319,7 +376,7 @@ export default function UsersPage({ currentUser, toast }) {
                 </tr>
               </thead>
               <tbody>
-                {users.map((u, i) => (
+                {shownUsers.map((u, i) => (
                   <tr key={u.id}>
                     <td>{i + 1}</td>
                     <td>
@@ -357,6 +414,16 @@ export default function UsersPage({ currentUser, toast }) {
                     </td>
                   </tr>
                 ))}
+                {shownUsers.length === 0 && (
+                  <tr>
+                    <td colSpan={7} style={{
+                      padding: "28px 10px", textAlign: "center",
+                      color: "var(--text-secondary)", fontSize: 14,
+                    }}>
+                      🔍 "{query}" bo'yicha hech narsa topilmadi
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
             )}
