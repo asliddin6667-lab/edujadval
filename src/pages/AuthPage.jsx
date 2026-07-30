@@ -28,7 +28,7 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
   const savedEmail = localStorage.getItem("edu_remember_email") || "";
   // Faqat login/register rejimlari mavjud; boshqasi kelsa login'ga tushadi
   const [mode, setMode] = useState(initialMode === "register" ? "register" : "login");
-  const [form, setForm] = useState({ name: "", email: savedEmail, password: "", schoolName: "", phone: "" });
+  const [form, setForm] = useState({ email: savedEmail, password: "", schoolName: "", phone: "" });
   const [remember, setRemember] = useState(!!savedEmail);
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState("");
@@ -183,19 +183,6 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
                       value={form.schoolName}
                       onChange={e => update("schoolName", e.target.value)}
                       placeholder="Turon odob-ilm maktabi"
-                    />
-                  </div>
-                </div>
-
-                <div className="edu-field">
-                  <label className="edu-field__label">ISM FAMILIYA</label>
-                  <div className="edu-field__wrap">
-                    <span className="edu-field__icon">👤</span>
-                    <input
-                      className="edu-field__input"
-                      value={form.name}
-                      onChange={e => update("name", e.target.value)}
-                      placeholder="Asliddin Munavvarov"
                     />
                   </div>
                 </div>
@@ -356,7 +343,16 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
                 src={`${import.meta.env.BASE_URL}turon-logo.png`}
                 alt="Turon odob-ilm xususiy maktabi"
                 style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                onError={(e) => {
+                  // .png topilmasa .jpg ni sinaymiz, u ham bo'lmasa yashiramiz
+                  const el = e.currentTarget;
+                  if (!el.dataset.tryJpg) {
+                    el.dataset.tryJpg = "1";
+                    el.src = `${import.meta.env.BASE_URL}turon-logo.jpg`;
+                  } else {
+                    el.style.display = "none";
+                  }
+                }}
               />
             </div>
 

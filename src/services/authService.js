@@ -149,7 +149,6 @@ export async function registerUser({ name, email, password, schoolName, phone })
   const normalized = email.trim().toLowerCase();
 
   if (!schoolName?.trim()) throw new Error("Maktab nomini kiriting");
-  if (!name.trim()) throw new Error("Ism kiriting");
 
   const tel = normalizePhone(phone);
   if (!tel) throw new Error("Telefon raqamni to'g'ri kiriting: +998 90 123 45 67");
@@ -162,7 +161,9 @@ export async function registerUser({ name, email, password, schoolName, phone })
     password,
     options: {
       data: {
-        name: name.trim(),
+        // Ism maydoni ro'yxatdan o'tishda so'ralmaydi — maktab nomi
+        // ishlatiladi. Superadmin keyin "Tahrirlash" orqali o'zgartiradi.
+        name: (name || "").trim() || schoolName.trim(),
         school_name: schoolName.trim(),
         phone: tel,
         uid: genUid(),
