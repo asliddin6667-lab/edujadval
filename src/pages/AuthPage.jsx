@@ -206,13 +206,13 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
                     className="edu-field__wrap"
                     style={{ display: "flex", alignItems: "center", flexWrap: "nowrap" }}
                   >
-                    <span className="edu-field__icon" style={{ flexShrink: 0 }}>📞</span>
                     <span style={{
                       flexShrink: 0,
                       fontSize: 14.5,
                       fontWeight: 700,
                       color: "#64748b",
-                      paddingRight: 7,
+                      paddingLeft: 14,
+                      paddingRight: 8,
                       whiteSpace: "nowrap",
                       userSelect: "none",
                     }}>+998</span>
@@ -296,71 +296,6 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
             </button>
           </form>
 
-          {/* ---------- LOYIHA YARATUVCHISI ---------- */}
-          {/* Ro'yxatdan o'tish sahifasida ko'rinadi.
-              Har doim ko'rinishi kerak bo'lsa: {!isLogin && (...)} ni olib tashlang. */}
-          {!isLogin && (
-            <div style={{
-              marginTop: 20,
-              padding: "13px 15px",
-              borderRadius: 16,
-              background: "linear-gradient(135deg,#fffefa 0%,#fdf7e6 55%,#faf0d4 100%)",
-              border: "1.5px solid #ead9ac",
-              boxShadow: "0 5px 18px rgba(180,142,45,.14), inset 0 1px 0 rgba(255,255,255,.75)",
-              display: "flex",
-              alignItems: "center",
-              gap: 13,
-            }}>
-              <div style={{
-                flexShrink: 0,
-                width: 54, height: 54,
-                borderRadius: 14,
-                background: "#fff",
-                border: "1px solid #f0e4c4",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 2px 8px rgba(180,142,45,.16)",
-                overflow: "hidden",
-              }}>
-                <img
-                  src={`${import.meta.env.BASE_URL}turon-logo.jpg`}
-                  alt="Turon odob-ilm xususiy maktabi"
-                  style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                  onError={(e) => { e.currentTarget.style.display = "none"; }}
-                />
-              </div>
-
-              <div style={{ minWidth: 0 }}>
-                <div style={{
-                  fontSize: 10,
-                  fontWeight: 800,
-                  letterSpacing: 1.3,
-                  textTransform: "uppercase",
-                  color: "#b08d3c",
-                  marginBottom: 4,
-                }}>
-                  Tomonidan yaratildi
-                </div>
-                <div style={{
-                  fontSize: 14,
-                  fontWeight: 800,
-                  color: "#5b4715",
-                  lineHeight: 1.3,
-                }}>
-                  Turon odob-ilm
-                </div>
-                <div style={{
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  letterSpacing: .4,
-                  color: "#9c8340",
-                  marginTop: 1,
-                }}>
-                  xususiy maktabi
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Parolni tiklash yordami — administrator orqali */}
           {isLogin && showHelp && (
             <div style={{
@@ -393,6 +328,69 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
               </div>
             </div>
           )}
+
+          {/* ---------- LOYIHA YARATUVCHISI ---------- */}
+          {/* Kirish va ro'yxatdan o'tish — ikkalasida ham ko'rinadi. */}
+          <div style={{
+            marginTop: 20,
+            padding: "13px 15px",
+            borderRadius: 16,
+            background: "linear-gradient(135deg,#fffefa 0%,#fdf7e6 55%,#faf0d4 100%)",
+            border: "1.5px solid #ead9ac",
+            boxShadow: "0 5px 18px rgba(180,142,45,.14), inset 0 1px 0 rgba(255,255,255,.75)",
+            display: "flex",
+            alignItems: "center",
+            gap: 13,
+            }}>
+            <div style={{
+              flexShrink: 0,
+              width: 54, height: 54,
+              borderRadius: 14,
+              background: "#fff",
+              border: "1px solid #f0e4c4",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 2px 8px rgba(180,142,45,.16)",
+              overflow: "hidden",
+            }}>
+              <img
+                src={`${import.meta.env.BASE_URL}turon-logo.png`}
+                alt="Turon odob-ilm xususiy maktabi"
+                style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+              />
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+              <div style={{
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: 1.3,
+                textTransform: "uppercase",
+                color: "#b08d3c",
+                marginBottom: 4,
+              }}>
+                Tomonidan yaratildi
+              </div>
+              <div style={{
+                fontSize: 14,
+                fontWeight: 800,
+                color: "#5b4715",
+                lineHeight: 1.3,
+              }}>
+                Turon odob-ilm
+              </div>
+              <div style={{
+                fontSize: 11.5,
+                fontWeight: 700,
+                letterSpacing: .4,
+                color: "#9c8340",
+                marginTop: 1,
+              }}>
+                xususiy maktabi
+              </div>
+            </div>
+            </div>
+
         </div>
 
         <div className="edu-footer">
