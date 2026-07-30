@@ -34,6 +34,8 @@ export default function UsersPage({ currentUser, toast }) {
 
   // Qidiruv (ID / email / ism / maktab bo'yicha)
   const [query, setQuery] = useState("");
+  // Obuna filtri: all | active | expired | unpaid
+  const [subFilter, setSubFilter] = useState("all");
 
   async function loadUsers() {
     try {
@@ -156,16 +158,32 @@ export default function UsersPage({ currentUser, toast }) {
     }
   }
 
-  function subLabel(u) {
+  // ------------------------------------------------------------------
+  //  OBUNA HOLATI — filtr va belgi (badge) uchun yagona manba
+  //  Qaytaradi: 'admin' | 'active' | 'expired' | 'unpaid'
+  // ------------------------------------------------------------------
+  function subState(u) {
+    if (u.role === "superadmin") return "admin";
     const sub = u.subscription || {};
-    if (u.role === "superadmin") return { text: "Admin", cls: "badge-info" };
     if (sub.status === "active") {
-      if (!sub.expiresAt) return { text: "Faol (muddatsiz)", cls: "badge-success" };
-      if (Date.now() > sub.expiresAt) return { text: "Muddati tugagan", cls: "badge-warning" };
-      const days = Math.ceil((sub.expiresAt - Date.now()) / 86400000);
+      // Muddati o'tib ketgan bo'lsa, serverda hali 'active' turgan bo'lishi mumkin
+      if (sub.expiresAt && Date.now() > sub.expiresAt) return "expired";
+      return "active";
+    }
+    if (sub.status === "expired") return "expired";
+    return "unpaid";
+  }
+
+  function subLabel(u) {
+    const st = subState(u);
+    if (st === "admin") return { text: "Admin", cls: "badge-info" };
+    if (st === "active") {
+      const exp = u.subscription?.expiresAt;
+      if (!exp) return { text: "Faol (muddatsiz)", cls: "badge-success" };
+      const days = Math.ceil((exp - Date.now()) / 86400000);
       return { text: `Faol — ${days} kun qoldi`, cls: "badge-success" };
     }
-    if (sub.status === "expired") return { text: "Muddati tugagan", cls: "badge-warning" };
+    if (st === "expired") return { text: "Muddati tugagan", cls: "badge-warning" };
     return { text: "To'lov qilmagan", cls: "badge-danger" };
   }
 
@@ -176,13 +194,30 @@ export default function UsersPage({ currentUser, toast }) {
   //  Bo'sh joylar va katta-kichik harf farqi hisobga olinmaydi.
   // ------------------------------------------------------------------
   const q = query.trim().toLowerCase();
-  const shownUsers = !q
-    ? users
-    : users.filter((u) =>
-        [u.uid, u.email, u.name, u.schoolName]
-          .filter(Boolean)
-          .some((field) => String(field).toLowerCase().includes(q))
-      );
+
+  // Har bir holat uchun nechta foydalanuvchi bor — chiplarda ko'rsatiladi
+  const counts = { all: users.length, active: 0, expired: 0, unpaid: 0 };
+  for (const u of users) {
+    const st = subState(u);
+    if (st in counts) counts[st] += 1;
+  }
+
+  const shownUsers = users.filter((u) => {
+    // Obuna filtri
+    if (subFilter !== "all" && subState(u) !== subFilter) return false;
+    // Matn qidiruvi
+    if (!q) return true;
+    return [u.uid, u.email, u.name, u.schoolName]
+      .filter(Boolean)
+      .some((field) => String(field).toLowerCase().includes(q));
+  });
+
+  const SUB_TABS = [
+    { key: "all",     label: "Hammasi",        color: "#475569" },
+    { key: "active",  label: "Obuna faol",     color: "#059669" },
+    { key: "expired", label: "Muddati tugagan", color: "#b45309" },
+    { key: "unpaid",  label: "To'lov qilmagan", color: "#dc2626" },
+  ];
 
   return (
     <div>
@@ -352,10 +387,43 @@ export default function UsersPage({ currentUser, toast }) {
                 )}
               </div>
               <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 600 }}>
-                {q
+                {(q || subFilter !== "all")
                   ? `${shownUsers.length} / ${users.length} foydalanuvchi`
                   : `Jami: ${users.length} foydalanuvchi`}
               </div>
+            </div>
+
+            {/* ---------------- OBUNA FILTRI ---------------- */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+              {SUB_TABS.map((t) => {
+                const on = subFilter === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => setSubFilter(t.key)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 7,
+                      height: 34, padding: "0 13px", borderRadius: 999,
+                      border: on ? `1.5px solid ${t.color}` : "1.5px solid var(--border, #e2e8f0)",
+                      background: on ? `${t.color}18` : "transparent",
+                      color: on ? t.color : "var(--text-secondary)",
+                      fontSize: 13, fontWeight: on ? 800 : 600,
+                      cursor: "pointer", transition: "all .15s",
+                    }}
+                  >
+                    {t.label}
+                    <span style={{
+                      minWidth: 20, padding: "1px 6px", borderRadius: 999,
+                      background: on ? t.color : "var(--border, #e2e8f0)",
+                      color: on ? "#fff" : "var(--text-secondary)",
+                      fontSize: 11.5, fontWeight: 800, lineHeight: 1.5,
+                    }}>
+                      {counts[t.key]}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             {loading ? (
@@ -420,7 +488,9 @@ export default function UsersPage({ currentUser, toast }) {
                       padding: "28px 10px", textAlign: "center",
                       color: "var(--text-secondary)", fontSize: 14,
                     }}>
-                      🔍 "{query}" bo'yicha hech narsa topilmadi
+                      🔍 {q
+                        ? `"${query}" bo'yicha hech narsa topilmadi`
+                        : "Bu holatda foydalanuvchi yo'q"}
                     </td>
                   </tr>
                 )}
