@@ -4,7 +4,7 @@ import {
   adminUpdateProfile, adminDeleteUser,
   activateSubscription, deactivateSubscription,
   updateOwnProfile,
-  adminResetPassword, adminSendPasswordReset,
+  adminResetPassword,
 } from "../services/authService";
 
 // =====================================================================
@@ -14,7 +14,8 @@ import {
 //  - Qurilma bog'lash/tiklash butunlay olib tashlandi (cheklov yo'q).
 //  - "🔑 Parol" — superadmin foydalanuvchiga yangi parol o'rnatadi
 //    (Edge Function orqali).
-//  - "✉️ Tiklash xati" — foydalanuvchi emailiga tiklash havolasi ketadi.
+//  - Email orqali tiklash ishlatilmaydi: parolni faqat superadmin
+//    o'rnatadi va foydalanuvchiga o'zi yetkazadi.
 // =====================================================================
 export default function UsersPage({ currentUser, toast }) {
   const [users, setUsers] = useState([]);
@@ -119,12 +120,6 @@ export default function UsersPage({ currentUser, toast }) {
       setPwValue("");
       toast(`Parol o'rnatildi. Foydalanuvchiga yuboring: ${shown}`, "success");
     });
-  }
-
-  function sendResetMail(u) {
-    if (!u.email) return toast("Bu hisobda email yo'q", "warning");
-    if (!confirm(`${u.email} manziliga parolni tiklash havolasi yuborilsinmi?`)) return;
-    run(() => adminSendPasswordReset(u.email), "Tiklash xati yuborildi ✓");
   }
 
   // ------------------------------------------------------------------
@@ -356,7 +351,6 @@ export default function UsersPage({ currentUser, toast }) {
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <button className="btn btn-info btn-sm" title="Ism va maktabni o'zgartirish" onClick={() => startEdit(u)} disabled={busy}>✏️ Tahrirlash</button>
                         <button className="btn btn-warning btn-sm" title="Yangi parol o'rnatish" onClick={() => startPwReset(u)} disabled={busy}>🔑 Parol</button>
-                        <button className="btn btn-secondary btn-sm" title="Foydalanuvchi emailiga tiklash havolasini yuborish" onClick={() => sendResetMail(u)} disabled={busy}>✉️ Tiklash xati</button>
                         <button className="btn btn-warning btn-sm" onClick={() => toggleStatus(u)} disabled={busy}>{u.status === "active" ? "Bloklash" : "Faollashtirish"}</button>
                         <button className="btn btn-danger btn-sm" onClick={() => removeUser(u)} disabled={busy}>O'chirish</button>
                       </div>

@@ -1,45 +1,33 @@
-import { useState, useEffect } from "react";
-import {
-  login,
-  registerUser,
-  sendPasswordReset,
-  completePasswordReset,
-  clearRecoveryUrl,
-} from "../services/authService";
+import { useState } from "react";
+import { login, registerUser } from "../services/authService";
 import "../styles/auth.css";
 
 // =====================================================================
-//  KIRISH / RO'YXATDAN O'TISH / PAROLNI TIKLASH
+//  KIRISH / RO'YXATDAN O'TISH
 //
-//  Rejimlar:
-//    login    — email + parol bilan kirish (qurilma cheklovi YO'Q)
-//    register — yangi hisob ochish
-//    forgot   — emailga tiklash havolasini yuborish
-//    reset    — havoladan kelgan foydalanuvchi yangi parol o'rnatadi
+//  - Qurilma cheklovi YO'Q: istalgan kompyuter/telefondan kiriladi
+//  - Email tasdiqlash YO'Q: ro'yxatdan o'tgan zahoti tizimga kiradi
+//  - Parolni unutgan foydalanuvchini ADMIN tiklab beradi
+//    (Foydalanuvchilar sahifasidagi "Parol" tugmasi orqali)
 // =====================================================================
+
+// Admin aloqa ma'lumotlari
+const ADMIN_TELEGRAM = "https://t.me/+998941366667";
+const ADMIN_PHONE = "+998 94 136 66 67";
+const ADMIN_NAME = "Asliddin_Muhiddinovich";
+
 export default function AuthPage({ onAuth, initialMode = "login" }) {
   const savedEmail = localStorage.getItem("edu_remember_email") || "";
-  const [mode, setMode] = useState(initialMode);
+  // Faqat login/register rejimlari mavjud; boshqasi kelsa login'ga tushadi
+  const [mode, setMode] = useState(initialMode === "register" ? "register" : "login");
   const [form, setForm] = useState({ name: "", email: savedEmail, password: "", schoolName: "" });
-  const [newPass, setNewPass] = useState({ a: "", b: "" });
   const [remember, setRemember] = useState(!!savedEmail);
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // Tiklash rejimida ochilsa, URL'dagi tokenni ko'rinmas qilamiz
-  useEffect(() => {
-    if (initialMode === "reset") {
-      setInfo("Yangi parolingizni kiriting.");
-    }
-  }, [initialMode]);
-
-  function update(key, value) {
-    setForm(prev => ({ ...prev, [key]: value }));
-    clearMsgs();
-  }
+  const [showHelp, setShowHelp] = useState(false);
 
   function clearMsgs() {
     setError("");
@@ -47,14 +35,17 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
     setInfo("");
   }
 
-  function switchMode(next) {
-    setMode(next);
+  function update(key, value) {
+    setForm(prev => ({ ...prev, [key]: value }));
     clearMsgs();
   }
 
-  // ------------------------------------------------------------------
-  //  KIRISH
-  // ------------------------------------------------------------------
+  function switchMode(next) {
+    setMode(next);
+    setShowHelp(false);
+    clearMsgs();
+  }
+
   async function handleLogin(e) {
     e.preventDefault();
     if (loading) return;
@@ -72,9 +63,6 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
     }
   }
 
-  // ------------------------------------------------------------------
-  //  RO'YXATDAN O'TISH
-  // ------------------------------------------------------------------
   async function handleRegister(e) {
     e.preventDefault();
     if (loading) return;
@@ -92,63 +80,7 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
     }
   }
 
-  // ------------------------------------------------------------------
-  //  PAROLNI UNUTDIM -> EMAILGA HAVOLA
-  // ------------------------------------------------------------------
-  async function handleForgot(e) {
-    e.preventDefault();
-    if (loading) return;
-    setLoading(true);
-    setError("");
-    try {
-      await sendPasswordReset(form.email);
-      setSuccess(
-        "Tiklash havolasi yuborildi. Pochtangizni (va \"Spam\" papkasini) tekshiring."
-      );
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // ------------------------------------------------------------------
-  //  YANGI PAROLNI O'RNATISH
-  // ------------------------------------------------------------------
-  async function handleReset(e) {
-    e.preventDefault();
-    if (loading) return;
-    if (newPass.a !== newPass.b) {
-      setError("Parollar mos kelmadi");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      await completePasswordReset(newPass.a);
-      clearRecoveryUrl();
-      setNewPass({ a: "", b: "" });
-      setMode("login");
-      setSuccess("Parol yangilandi! Endi yangi parol bilan kiring.");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   const isLogin = mode === "login";
-  const isRegister = mode === "register";
-  const isForgot = mode === "forgot";
-  const isReset = mode === "reset";
-
-  const submitHandler = isLogin
-    ? handleLogin
-    : isRegister
-    ? handleRegister
-    : isForgot
-    ? handleForgot
-    : handleReset;
 
   return (
     <div className="edu-auth">
@@ -210,55 +142,29 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
             />
           </div>
 
-          {/* Tablar faqat login/register rejimida ko'rinadi */}
-          {(isLogin || isRegister) && (
-            <div className="edu-tabs">
-              <button
-                type="button"
-                className={`edu-tabs__btn ${isLogin ? "edu-tabs__btn--active" : ""}`}
-                onClick={() => switchMode("login")}
-              >
-                Kirish
-              </button>
-              <button
-                type="button"
-                className={`edu-tabs__btn ${isRegister ? "edu-tabs__btn--active" : ""}`}
-                onClick={() => switchMode("register")}
-              >
-                Ro'yxatdan o'tish
-              </button>
-            </div>
-          )}
-
-          {/* Tiklash rejimlarining sarlavhasi */}
-          {isForgot && (
-            <div style={{ textAlign: "center", marginBottom: 16 }}>
-              <div style={{ fontSize: 34, marginBottom: 4 }}>🔑</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
-                Parolni tiklash
-              </div>
-              <div style={{ fontSize: 13.5, color: "#64748b", marginTop: 4 }}>
-                Email manzilingizni kiriting — tiklash havolasini yuboramiz.
-              </div>
-            </div>
-          )}
-
-          {isReset && (
-            <div style={{ textAlign: "center", marginBottom: 16 }}>
-              <div style={{ fontSize: 34, marginBottom: 4 }}>🔒</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
-                Yangi parol o'rnatish
-              </div>
-            </div>
-          )}
+          <div className="edu-tabs">
+            <button
+              type="button"
+              className={`edu-tabs__btn ${isLogin ? "edu-tabs__btn--active" : ""}`}
+              onClick={() => switchMode("login")}
+            >
+              Kirish
+            </button>
+            <button
+              type="button"
+              className={`edu-tabs__btn ${!isLogin ? "edu-tabs__btn--active" : ""}`}
+              onClick={() => switchMode("register")}
+            >
+              Ro'yxatdan o'tish
+            </button>
+          </div>
 
           {error && <div className="edu-alert edu-alert--warn">⚠️ {error}</div>}
           {success && <div className="edu-alert edu-alert--ok">✅ {success}</div>}
           {info && <div className="edu-alert edu-alert--info">ℹ️ {info}</div>}
 
-          <form onSubmit={submitHandler} className="edu-form">
-            {/* --- Ro'yxatdan o'tishdagi qo'shimcha maydonlar --- */}
-            {isRegister && (
+          <form onSubmit={isLogin ? handleLogin : handleRegister} className="edu-form">
+            {!isLogin && (
               <>
                 <div className="edu-field">
                   <label className="edu-field__label">ISM FAMILIYA</label>
@@ -287,92 +193,44 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
               </>
             )}
 
-            {/* --- Email (reset rejimidan tashqari hamma joyda) --- */}
-            {!isReset && (
-              <div className="edu-field">
-                <label className="edu-field__label">EMAIL</label>
-                <div className="edu-field__wrap">
-                  <span className="edu-field__icon">✉️</span>
-                  <input
-                    className="edu-field__input"
-                    type="email"
-                    value={form.email}
-                    onChange={e => update("email", e.target.value)}
-                    placeholder="email@example.com"
-                    autoComplete="email"
-                  />
-                </div>
+            <div className="edu-field">
+              <label className="edu-field__label">EMAIL</label>
+              <div className="edu-field__wrap">
+                <span className="edu-field__icon">✉️</span>
+                <input
+                  className="edu-field__input"
+                  type="email"
+                  value={form.email}
+                  onChange={e => update("email", e.target.value)}
+                  placeholder="email@example.com"
+                  autoComplete="email"
+                />
               </div>
-            )}
+            </div>
 
-            {/* --- Parol (forgot rejimida kerak emas) --- */}
-            {(isLogin || isRegister) && (
-              <div className="edu-field">
-                <label className="edu-field__label">PAROL</label>
-                <div className="edu-field__wrap">
-                  <span className="edu-field__icon">🔒</span>
-                  <input
-                    className="edu-field__input edu-field__input--pass"
-                    type={showPass ? "text" : "password"}
-                    value={form.password}
-                    onChange={e => update("password", e.target.value)}
-                    placeholder="Kamida 6 belgi"
-                    autoComplete={isLogin ? "current-password" : "new-password"}
-                  />
-                  <button
-                    type="button"
-                    className="edu-field__eye"
-                    onClick={() => setShowPass(v => !v)}
-                    title={showPass ? "Parolni yashirish" : "Parolni ko'rsatish"}
-                  >
-                    {showPass ? "🙈" : "👁️"}
-                  </button>
-                </div>
+            <div className="edu-field">
+              <label className="edu-field__label">PAROL</label>
+              <div className="edu-field__wrap">
+                <span className="edu-field__icon">🔒</span>
+                <input
+                  className="edu-field__input edu-field__input--pass"
+                  type={showPass ? "text" : "password"}
+                  value={form.password}
+                  onChange={e => update("password", e.target.value)}
+                  placeholder="Kamida 6 belgi"
+                  autoComplete={isLogin ? "current-password" : "new-password"}
+                />
+                <button
+                  type="button"
+                  className="edu-field__eye"
+                  onClick={() => setShowPass(v => !v)}
+                  title={showPass ? "Parolni yashirish" : "Parolni ko'rsatish"}
+                >
+                  {showPass ? "🙈" : "👁️"}
+                </button>
               </div>
-            )}
+            </div>
 
-            {/* --- Yangi parol maydonlari (reset rejimi) --- */}
-            {isReset && (
-              <>
-                <div className="edu-field">
-                  <label className="edu-field__label">YANGI PAROL</label>
-                  <div className="edu-field__wrap">
-                    <span className="edu-field__icon">🔒</span>
-                    <input
-                      className="edu-field__input edu-field__input--pass"
-                      type={showPass ? "text" : "password"}
-                      value={newPass.a}
-                      onChange={e => { setNewPass(p => ({ ...p, a: e.target.value })); clearMsgs(); }}
-                      placeholder="Kamida 6 belgi"
-                      autoComplete="new-password"
-                    />
-                    <button
-                      type="button"
-                      className="edu-field__eye"
-                      onClick={() => setShowPass(v => !v)}
-                    >
-                      {showPass ? "🙈" : "👁️"}
-                    </button>
-                  </div>
-                </div>
-                <div className="edu-field">
-                  <label className="edu-field__label">PAROLNI TAKRORLANG</label>
-                  <div className="edu-field__wrap">
-                    <span className="edu-field__icon">🔁</span>
-                    <input
-                      className="edu-field__input"
-                      type={showPass ? "text" : "password"}
-                      value={newPass.b}
-                      onChange={e => { setNewPass(p => ({ ...p, b: e.target.value })); clearMsgs(); }}
-                      placeholder="Yana bir marta"
-                      autoComplete="new-password"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* --- Eslab qolish + parolni unutdingizmi --- */}
             {isLogin && (
               <div className="edu-row">
                 <label className="edu-remember">
@@ -386,7 +244,7 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
                 <button
                   type="button"
                   className="edu-forgot"
-                  onClick={() => switchMode("forgot")}
+                  onClick={() => setShowHelp(v => !v)}
                 >
                   Parolni unutdingizmi?
                 </button>
@@ -394,56 +252,48 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
             )}
 
             <button className="edu-submit" type="submit" disabled={loading}>
-              {isLogin && (loading ? "Tekshirilmoqda..." : "Kirish")}
-              {isRegister && (loading ? "Yaratilmoqda..." : "Ro'yxatdan o'tish")}
-              {isForgot && (loading ? "Yuborilmoqda..." : "Tiklash havolasini yuborish")}
-              {isReset && (loading ? "Saqlanmoqda..." : "Parolni saqlash")}
+              {isLogin
+                ? (loading ? "Tekshirilmoqda..." : "Kirish")
+                : (loading ? "Yaratilmoqda..." : "Ro'yxatdan o'tish")}
             </button>
           </form>
 
-          {/* --- Orqaga qaytish + admin yordami --- */}
-          {isForgot && (
-            <>
-              <button
-                type="button"
-                className="edu-forgot"
-                style={{ display: "block", margin: "14px auto 0" }}
-                onClick={() => switchMode("login")}
-              >
-                ← Kirish sahifasiga qaytish
-              </button>
-              <div style={{
-                marginTop: 14, padding: "11px 14px", borderRadius: 12,
-                background: "#f8fafc", border: "1px solid #e2e8f0",
-                fontSize: 12.5, color: "#475569", lineHeight: 1.6, textAlign: "center",
-              }}>
-                Xat kelmadimi? Administrator ham parolingizni tiklab bera oladi:{" "}
+          {/* Parolni tiklash yordami — administrator orqali */}
+          {isLogin && showHelp && (
+            <div style={{
+              marginTop: 14, padding: "13px 15px", borderRadius: 12,
+              background: "#f8fafc", border: "1px solid #e2e8f0",
+              fontSize: 13, color: "#475569", lineHeight: 1.7,
+            }}>
+              <div style={{ fontWeight: 800, color: "#0f172a", marginBottom: 5 }}>
+                🔑 Parolni administrator tiklab beradi
+              </div>
+              Quyidagi manzilga murojaat qiling — ismingiz va email
+              manzilingizni yozing, yangi parol beriladi.
+              <div style={{ marginTop: 9 }}>
                 <a
-                  href="https://t.me/+998941366667"
+                  href={ADMIN_TELEGRAM}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ color: "#4f46e5", fontWeight: 700 }}
+                  style={{ color: "#4f46e5", fontWeight: 700, textDecoration: "none" }}
                 >
-                  Asliddin_Muhiddinovich ✈️
+                  ✈️ Telegram: {ADMIN_NAME}
                 </a>
               </div>
-            </>
-          )}
-
-          {isReset && (
-            <button
-              type="button"
-              className="edu-forgot"
-              style={{ display: "block", margin: "14px auto 0" }}
-              onClick={() => { clearRecoveryUrl(); switchMode("login"); }}
-            >
-              ← Bekor qilish
-            </button>
+              <div style={{ marginTop: 4 }}>
+                <a
+                  href="tel:+998941366667"
+                  style={{ color: "#4f46e5", fontWeight: 700, textDecoration: "none" }}
+                >
+                  📞 {ADMIN_PHONE}
+                </a>
+              </div>
+            </div>
           )}
         </div>
 
         <div className="edu-footer">
-          © 2026 Edujadval.uz. Barcha huquqlar himoyalangan. · Admin: Asliddin_Muhiddinovich
+          © 2026 Edujadval.uz. Barcha huquqlar himoyalangan. · Admin: {ADMIN_NAME}
         </div>
       </div>
     </div>
