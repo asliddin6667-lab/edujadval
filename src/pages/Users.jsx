@@ -34,6 +34,7 @@ export default function UsersPage({ currentUser, toast }) {
   // O'zbekiston ro'yxatidan qo'shiladi
   const [showDistricts, setShowDistricts] = useState(false);
   const [selRegion, setSelRegion] = useState("");
+  const [expandedDistrict, setExpandedDistrict] = useState(null);
 
   // Tahrirlash
   const [editUser, setEditUser] = useState(null);
@@ -414,7 +415,8 @@ export default function UsersPage({ currentUser, toast }) {
                   <tbody>
                     {districts.map((d, i) => {
                       const admins = users.filter((u) => u.districtId === d.id && u.role === "district_admin");
-                      const schoolsCount = users.filter((u) => u.districtId === d.id && u.role === "user").length;
+                      const distSchools = users.filter((u) => u.districtId === d.id && u.role === "user");
+                      const isOpen = expandedDistrict === d.id;
                       return (
                         <tr key={d.id}>
                           <td>{i + 1}</td>
@@ -427,7 +429,39 @@ export default function UsersPage({ currentUser, toast }) {
                                   <div key={a.id} style={{ fontSize: 12.5 }}>👤 {a.name || a.email}</div>
                                 ))}
                           </td>
-                          <td>{schoolsCount} ta</td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedDistrict(isOpen ? null : d.id)}
+                              disabled={distSchools.length === 0}
+                              title={distSchools.length ? "Maktablar ro'yxatini ochish/yopish" : "Maktab yo'q"}
+                              style={{
+                                border: "1.5px solid rgba(37,99,235,.3)",
+                                background: isOpen ? "rgba(37,99,235,.1)" : "transparent",
+                                color: distSchools.length ? "#2563eb" : "var(--text-secondary)",
+                                borderRadius: 999, padding: "4px 12px",
+                                fontSize: 12.5, fontWeight: 800,
+                                cursor: distSchools.length ? "pointer" : "default",
+                              }}
+                            >
+                              🏫 {distSchools.length} ta {distSchools.length > 0 && (isOpen ? "▲" : "▼")}
+                            </button>
+                            {isOpen && (
+                              <div style={{
+                                marginTop: 7, display: "grid", gap: 4,
+                                padding: "8px 10px", borderRadius: 10,
+                                background: "rgba(37,99,235,.05)",
+                                border: "1px solid rgba(37,99,235,.15)",
+                              }}>
+                                {distSchools.map((s) => (
+                                  <div key={s.id} style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+                                    🏫 <b>{s.schoolName || s.name}</b>
+                                    <span style={{ color: "var(--text-secondary)" }}> · {s.email}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
                           <td>
                             <button className="btn btn-danger btn-sm" onClick={() => handleDeleteDistrict(d)} disabled={busy}>
                               O'chirish
@@ -795,23 +829,46 @@ export default function UsersPage({ currentUser, toast }) {
                       {u.role === "superadmin" ? (
                         <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>—</span>
                       ) : (
-                        <select
-                          className="form-control"
-                          value={u.districtId || ""}
-                          onChange={(e) => changeDistrict(u, e.target.value)}
-                          style={{ maxWidth: 170 }}
-                          disabled={busy}
-                        >
-                          <option value="">— Tanlanmagan —</option>
-                          {districts.map((d) => (
-                            <option key={d.id} value={d.id}>{d.name}</option>
-                          ))}
-                        </select>
-                      )}
-                      {(u.regionName || u.districtName) && (
-                        <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 4 }}>
-                          📍 {[u.regionName, u.districtName].filter(Boolean).join(" · ")}
-                        </div>
+                        <>
+                          {/* Foydalanuvchi ro'yxatdan o'tishda tanlagan hudud */}
+                          {(u.regionName || u.districtName) ? (
+                            <div style={{ marginBottom: 6 }}>
+                              <div style={{
+                                display: "inline-block",
+                                padding: "4px 10px", borderRadius: 999,
+                                background: "rgba(37,99,235,.1)",
+                                border: "1px solid rgba(37,99,235,.25)",
+                                fontSize: 12, fontWeight: 800, color: "#2563eb",
+                              }}>
+                                📍 {u.districtName || "—"}
+                              </div>
+                              {u.regionName && (
+                                <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+                                  {u.regionName}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginBottom: 6 }}>
+                              📍 Hudud ko'rsatilmagan
+                            </div>
+                          )}
+
+                          {/* Tizimdagi tumanga bog'lash */}
+                          <select
+                            className="form-control"
+                            value={u.districtId || ""}
+                            onChange={(e) => changeDistrict(u, e.target.value)}
+                            style={{ maxWidth: 170 }}
+                            disabled={busy}
+                            title="Tizimdagi tumanga bog'lash"
+                          >
+                            <option value="">— Bog'lanmagan —</option>
+                            {districts.map((d) => (
+                              <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                          </select>
+                        </>
                       )}
                       {u.role === "district_admin" && !u.districtId && (
                         <div style={{ fontSize: 11, color: "#dc2626", fontWeight: 700, marginTop: 3 }}>
@@ -820,7 +877,8 @@ export default function UsersPage({ currentUser, toast }) {
                       )}
                       {u.role === "user" && !u.districtId && u.districtName && (
                         <div style={{ fontSize: 11, color: "#b45309", fontWeight: 700, marginTop: 3 }}>
-                          ⚠️ "{u.districtName}" hali tizimga qo'shilmagan
+                          ⚠️ "{u.districtName}" hali tizimga qo'shilmagan —
+                          Tumanlar bo'limidan qo'shsangiz avtomatik bog'lanadi
                         </div>
                       )}
                     </td>
