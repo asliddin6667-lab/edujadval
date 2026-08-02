@@ -7,6 +7,8 @@
 //  - PAROLNI TIKLASH qo'shildi:
 //      1-yo'l: email orqali (sendPasswordReset -> completePasswordReset)
 //      2-yo'l: superadmin orqali (adminResetPassword)
+//  - DISTRICT ADMIN (v3): profilda district_id va must_change_password
+//    maydonlari o'qiladi — tuman admini paneli uchun.
 //
 //  Sessiya kesh: profil ma'lumotlari localStorage'da keshlanadi, shu
 //  sababli getCurrentUser() va checkSubscription() SINXRON qolgan —
@@ -44,6 +46,8 @@ function profileToUser(p) {
     role: p.role || "user",
     status: p.status || "active",
     schoolName: p.school_name || "",
+    districtId: p.district_id || null,                    // YANGI: tuman
+    mustChangePassword: !!p.must_change_password,          // YANGI: parol bayrog'i
     createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
     subscription: {
       status: p.sub_status || "unpaid",
@@ -290,7 +294,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function checkSubscription(user) {
   if (!user) return { blocked: true, status: "unpaid", expiresAt: null, daysLeft: 0 };
-  if (user.role === "superadmin") {
+  // Superadmin va tuman admini obuna to'lovidan ozod
+  if (user.role === "superadmin" || user.role === "district_admin") {
     return { blocked: false, status: "active", expiresAt: null, daysLeft: Infinity, uid: user.uid };
   }
 
@@ -469,7 +474,40 @@ export async function adminResetPassword(targetUserId, newPassword) {
   if (!res.ok) {
     throw new Error(body.error || `Xatolik (${res.status})`);
   }
+
+  // Vaqtinchalik parol — foydalanuvchi birinchi kirishda YANGI parol
+  // o'rnatishi majburiy bo'ladi. Bayroq yozilmasa ham parol allaqachon
+  // o'rnatilgan, shuning uchun xatoni yutamiz.
+  await supabase
+    .rpc("admin_require_password_change", { target: targetUserId })
+    .catch(() => {});
+
   return true;
+}
+
+// =====================================================================
+//  MAJBURIY PAROL ALMASHTIRISH
+//  Superadmin vaqtinchalik parol o'rnatgan foydalanuvchi birinchi
+//  kirishda shu funksiya orqali o'ziga yangi parol qo'yadi.
+// =====================================================================
+export async function completeForcedPasswordChange(newPassword) {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("Parol kamida 6 ta belgi bo'lsin");
+  }
+
+  const { data: sess } = await supabase.auth.getSession();
+  if (!sess?.session) {
+    throw new Error("Sessiya topilmadi. Qaytadan kiring.");
+  }
+
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw new Error(error.message);
+
+  // Bayroqni o'chiramiz — keyingi kirishlarda talab qilinmaydi
+  const { error: fErr } = await supabase.rpc("clear_password_change_flag");
+  if (fErr) throw new Error(fErr.message);
+
+  return refreshCurrentUser();
 }
 
 // Superadmin foydalanuvchiga tiklash xatini yuboradi (Edge Function shart emas)

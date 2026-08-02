@@ -6,23 +6,31 @@ import {
   updateOwnProfile,
   adminResetPassword, adminSetPhone, formatPhone,
 } from "../services/authService";
+import {
+  fetchDistricts, createDistrict, deleteDistrict, assignUserDistrict,
+} from "../services/districtService";
 
 // =====================================================================
 //  FOYDALANUVCHILAR (Superadmin paneli)
 //
-//  O'ZGARISHLAR:
-//  - Qurilma bog'lash/tiklash butunlay olib tashlandi (cheklov yo'q).
-//  - "🔑 Parol" — superadmin foydalanuvchiga yangi parol o'rnatadi
-//    (Edge Function orqali).
-//  - Email orqali tiklash ishlatilmaydi: parolni faqat superadmin
-//    o'rnatadi va foydalanuvchiga o'zi yetkazadi.
+//  YANGI (District Admin v1):
+//  - 🏛 Tumanlar boshqaruvi: yaratish / o'chirish
+//  - Rol tanlovida "Tuman admini" (district_admin) paydo bo'ldi
+//  - Har bir foydalanuvchini tumanga biriktirish mumkin
+//  - "🔑 Parol" o'rnatilganda foydalanuvchi birinchi kirishda
+//    yangi parol qo'yishi MAJBURIY bo'ladi (must_change_password)
 // =====================================================================
 export default function UsersPage({ currentUser, toast }) {
   const [users, setUsers] = useState([]);
+  const [districts, setDistricts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", password: "", schoolName: "", phone: "", role: "user" });
   const [showForm, setShowForm] = useState(false);
+
+  // Tumanlar boshqaruvi
+  const [showDistricts, setShowDistricts] = useState(false);
+  const [distForm, setDistForm] = useState({ name: "", region: "" });
 
   // Tahrirlash
   const [editUser, setEditUser] = useState(null);
@@ -40,8 +48,9 @@ export default function UsersPage({ currentUser, toast }) {
   async function loadUsers() {
     try {
       setLoading(true);
-      const list = await fetchAllUsers();
+      const [list, dList] = await Promise.all([fetchAllUsers(), fetchDistricts()]);
       setUsers(list);
+      setDistricts(dList);
     } catch (err) {
       toast(err.message, "warning");
     } finally {
@@ -105,6 +114,13 @@ export default function UsersPage({ currentUser, toast }) {
     run(() => adminSetRole(user.id, role), "Rol yangilandi");
   }
 
+  function changeDistrict(user, districtId) {
+    run(
+      () => assignUserDistrict(user.id, districtId || null),
+      districtId ? "Tumanga biriktirildi ✓" : "Tumandan chiqarildi"
+    );
+  }
+
   function grantDays(user, days) {
     run(() => activateSubscription(user.id, days), `${user.name}: obuna ${days} kunga faollashtirildi ✓`);
   }
@@ -112,6 +128,30 @@ export default function UsersPage({ currentUser, toast }) {
   function revokeSub(user) {
     if (!confirm(`${user.email} obunasi bekor qilinsinmi? Platforma u uchun bloklanadi.`)) return;
     run(() => deactivateSubscription(user.id), "Obuna bekor qilindi", "warning");
+  }
+
+  // ------------------------------------------------------------------
+  //  TUMANLAR BOSHQARUVI
+  // ------------------------------------------------------------------
+  function handleCreateDistrict() {
+    if (!distForm.name.trim()) return toast("Tuman nomini kiriting", "warning");
+    run(async () => {
+      await createDistrict(distForm.name, distForm.region);
+      setDistForm({ name: "", region: "" });
+    }, "Tuman yaratildi ✓");
+  }
+
+  function handleDeleteDistrict(d) {
+    const linked = users.filter((u) => u.districtId === d.id).length;
+    const warn = linked
+      ? `\nDIQQAT: ${linked} ta foydalanuvchi shu tumanga biriktirilgan — ular tumandan chiqariladi (o'chirilmaydi).`
+      : "";
+    if (!confirm(`"${d.name}" tumani o'chirilsinmi?${warn}`)) return;
+    run(() => deleteDistrict(d.id), "Tuman o'chirildi", "warning");
+  }
+
+  function districtName(id) {
+    return districts.find((d) => d.id === id)?.name || "—";
   }
 
   // ------------------------------------------------------------------
@@ -131,7 +171,7 @@ export default function UsersPage({ currentUser, toast }) {
       const shown = pwValue;
       setPwUser(null);
       setPwValue("");
-      toast(`Parol o'rnatildi. Foydalanuvchiga yuboring: ${shown}`, "success");
+      toast(`Vaqtinchalik parol o'rnatildi: ${shown} — foydalanuvchi kirganda yangi parol qo'yishi majburiy`, "success");
     });
   }
 
@@ -175,10 +215,9 @@ export default function UsersPage({ currentUser, toast }) {
   //  Qaytaradi: 'admin' | 'active' | 'expired' | 'unpaid'
   // ------------------------------------------------------------------
   function subState(u) {
-    if (u.role === "superadmin") return "admin";
+    if (u.role === "superadmin" || u.role === "district_admin") return "admin";
     const sub = u.subscription || {};
     if (sub.status === "active") {
-      // Muddati o'tib ketgan bo'lsa, serverda hali 'active' turgan bo'lishi mumkin
       if (sub.expiresAt && Date.now() > sub.expiresAt) return "expired";
       return "active";
     }
@@ -188,7 +227,11 @@ export default function UsersPage({ currentUser, toast }) {
 
   function subLabel(u) {
     const st = subState(u);
-    if (st === "admin") return { text: "Admin", cls: "badge-info" };
+    if (st === "admin") {
+      return u.role === "district_admin"
+        ? { text: "Tuman admini", cls: "badge-info" }
+        : { text: "Admin", cls: "badge-info" };
+    }
     if (st === "active") {
       const exp = u.subscription?.expiresAt;
       if (!exp) return { text: "Faol (muddatsiz)", cls: "badge-success" };
@@ -203,11 +246,9 @@ export default function UsersPage({ currentUser, toast }) {
 
   // ------------------------------------------------------------------
   //  QIDIRUV — EDU-ID, email, ism yoki maktab nomi bo'yicha
-  //  Bo'sh joylar va katta-kichik harf farqi hisobga olinmaydi.
   // ------------------------------------------------------------------
   const q = query.trim().toLowerCase();
 
-  // Har bir holat uchun nechta foydalanuvchi bor — chiplarda ko'rsatiladi
   const counts = { all: users.length, active: 0, expired: 0, unpaid: 0 };
   for (const u of users) {
     const st = subState(u);
@@ -215,17 +256,13 @@ export default function UsersPage({ currentUser, toast }) {
   }
 
   const shownUsers = users.filter((u) => {
-    // Obuna filtri
     if (subFilter !== "all" && subState(u) !== subFilter) return false;
-    // Matn qidiruvi
     if (!q) return true;
     if (
       [u.uid, u.email, u.name, u.schoolName]
         .filter(Boolean)
         .some((field) => String(field).toLowerCase().includes(q))
     ) return true;
-    // Telefon: faqat raqamlar bo'yicha solishtiramiz, shunda
-    // "901234567" ham, "+998 90 123" ham topadi
     const qDigits = q.replace(/\D/g, "");
     if (qDigits && u.phone) {
       return String(u.phone).replace(/\D/g, "").includes(qDigits);
@@ -245,15 +282,106 @@ export default function UsersPage({ currentUser, toast }) {
       <div className="page-header">
         <div>
           <div className="page-title">Foydalanuvchilar</div>
-          <div className="page-subtitle">Super Admin paneli: user yaratish, bloklash, rol va parol boshqaruvi</div>
+          <div className="page-subtitle">Super Admin paneli: user yaratish, bloklash, rol, tuman va parol boshqaruvi</div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="btn btn-secondary" onClick={loadUsers} disabled={loading}>⟳ Yangilash</button>
-          <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditUser(null); setPwUser(null); }}>＋ Foydalanuvchi yaratish</button>
+          <button
+            className="btn btn-secondary"
+            onClick={() => { setShowDistricts(!showDistricts); setShowForm(false); setEditUser(null); setPwUser(null); }}
+          >
+            🏛 Tumanlar ({districts.length})
+          </button>
+          <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setShowDistricts(false); setEditUser(null); setPwUser(null); }}>＋ Foydalanuvchi yaratish</button>
         </div>
       </div>
 
       <div className="page-body">
+        {/* ---------------- TUMANLAR BOSHQARUVI ---------------- */}
+        {showDistricts && (
+          <div className="card" style={{ marginBottom: 18, border: "2px solid #2563eb" }}>
+            <div className="card-body">
+              <div style={{ fontWeight: 800, marginBottom: 4 }}>🏛 Tumanlar boshqaruvi</div>
+              <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 14 }}>
+                Tuman yarating, so'ng foydalanuvchilar jadvalidagi "Tuman" ustuni orqali
+                maktablar va tuman adminlarini shu tumanga biriktiring.
+                Tuman admini FAQAT o'z tumanidagi maktablarni ko'ra oladi.
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Tuman nomi</label>
+                  <input
+                    className="form-control"
+                    value={distForm.name}
+                    onChange={(e) => setDistForm({ ...distForm, name: e.target.value })}
+                    placeholder="Chilonzor tumani"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Viloyat / shahar</label>
+                  <input
+                    className="form-control"
+                    value={distForm.region}
+                    onChange={(e) => setDistForm({ ...distForm, region: e.target.value })}
+                    placeholder="Toshkent shahri"
+                  />
+                </div>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <button className="btn btn-primary" onClick={handleCreateDistrict} disabled={busy}>
+                  {busy ? "Yaratilmoqda..." : "＋ Tuman yaratish"}
+                </button>
+              </div>
+
+              {districts.length === 0 ? (
+                <div style={{ padding: "18px 10px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13.5 }}>
+                  Hali tuman yaratilmagan
+                </div>
+              ) : (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Tuman</th>
+                      <th>Viloyat / shahar</th>
+                      <th>Tuman adminlari</th>
+                      <th>Maktablar</th>
+                      <th>Amallar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {districts.map((d, i) => {
+                      const admins = users.filter((u) => u.districtId === d.id && u.role === "district_admin");
+                      const schoolsCount = users.filter((u) => u.districtId === d.id && u.role === "user").length;
+                      return (
+                        <tr key={d.id}>
+                          <td>{i + 1}</td>
+                          <td><strong>{d.name}</strong></td>
+                          <td>{d.region || "—"}</td>
+                          <td>
+                            {admins.length === 0
+                              ? <span className="badge badge-warning">Biriktirilmagan</span>
+                              : admins.map((a) => (
+                                  <div key={a.id} style={{ fontSize: 12.5 }}>👤 {a.name || a.email}</div>
+                                ))}
+                          </td>
+                          <td>{schoolsCount} ta</td>
+                          <td>
+                            <button className="btn btn-danger btn-sm" onClick={() => handleDeleteDistrict(d)} disabled={busy}>
+                              O'chirish
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ---------------- PAROL YANGILASH OYNASI ---------------- */}
         {pwUser && (
           <div className="card" style={{ marginBottom: 18, border: "2px solid #f59e0b" }}>
@@ -262,12 +390,13 @@ export default function UsersPage({ currentUser, toast }) {
                 🔑 Parolni yangilash: {pwUser.email}
               </div>
               <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 12 }}>
-                Yangi parolni siz o'rnatasiz. Uni foydalanuvchiga o'zingiz yetkazing —
-                keyin u Sozlamalar bo'limidan o'zgartirib olishi mumkin.
+                Bu VAQTINCHALIK parol bo'ladi — uni foydalanuvchiga o'zingiz yetkazing.
+                Foydalanuvchi shu parol bilan kirganda tizim undan darhol yangi parol
+                o'rnatishni majburiy talab qiladi.
               </div>
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Yangi parol</label>
+                  <label className="form-label">Vaqtinchalik parol</label>
                   <input
                     className="form-control"
                     value={pwValue}
@@ -383,7 +512,8 @@ export default function UsersPage({ currentUser, toast }) {
                 <div className="form-group">
                   <label className="form-label">Rol</label>
                   <select className="form-control" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
-                    <option value="user">Foydalanuvchi</option>
+                    <option value="user">Foydalanuvchi (maktab)</option>
+                    <option value="district_admin">Tuman admini</option>
                     <option value="superadmin">Super Admin</option>
                   </select>
                 </div>
@@ -392,6 +522,16 @@ export default function UsersPage({ currentUser, toast }) {
                   <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Bekor</button>
                 </div>
               </div>
+              {form.role === "district_admin" && (
+                <div style={{
+                  fontSize: 12.5, color: "var(--text-secondary)",
+                  padding: "9px 12px", borderRadius: 10,
+                  background: "rgba(37,99,235,.07)", border: "1px solid rgba(37,99,235,.2)",
+                }}>
+                  ℹ️ Tuman admini yaratilgach, jadvaldagi <b>Tuman</b> ustuni orqali
+                  uni tumanga biriktirishni unutmang — aks holda paneli bo'sh ko'rinadi.
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -485,6 +625,7 @@ export default function UsersPage({ currentUser, toast }) {
                   <th>Foydalanuvchi</th>
                   <th>Maktab</th>
                   <th>Rol</th>
+                  <th>Tuman</th>
                   <th>Obuna</th>
                   <th>Status</th>
                   <th>Amallar</th>
@@ -510,12 +651,36 @@ export default function UsersPage({ currentUser, toast }) {
                     <td>
                       <select className="form-control" value={u.role} onChange={e => changeRole(u, e.target.value)} style={{ maxWidth: 150 }} disabled={busy}>
                         <option value="user">Foydalanuvchi</option>
+                        <option value="district_admin">Tuman admini</option>
                         <option value="superadmin">Super Admin</option>
                       </select>
                     </td>
                     <td>
+                      {u.role === "superadmin" ? (
+                        <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>—</span>
+                      ) : (
+                        <select
+                          className="form-control"
+                          value={u.districtId || ""}
+                          onChange={(e) => changeDistrict(u, e.target.value)}
+                          style={{ maxWidth: 170 }}
+                          disabled={busy}
+                        >
+                          <option value="">— Tanlanmagan —</option>
+                          {districts.map((d) => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                          ))}
+                        </select>
+                      )}
+                      {u.role === "district_admin" && !u.districtId && (
+                        <div style={{ fontSize: 11, color: "#dc2626", fontWeight: 700, marginTop: 3 }}>
+                          ⚠️ Tuman biriktirilmagan!
+                        </div>
+                      )}
+                    </td>
+                    <td>
                       {(() => { const b = subLabel(u); return <span className={`badge ${b.cls}`}>{b.text}</span>; })()}
-                      {u.role !== "superadmin" && (
+                      {u.role === "user" && (
                         <div style={{ display: "flex", gap: 5, marginTop: 7, flexWrap: "wrap" }}>
                           <button className="btn btn-success btn-sm" title="6 oyga faollashtirish (Standart)" onClick={() => grantDays(u, 180)} disabled={busy}>+6 oy</button>
                           <button className="btn btn-success btn-sm" title="1 yilga faollashtirish" onClick={() => grantDays(u, 365)} disabled={busy}>+1 yil</button>
@@ -538,7 +703,7 @@ export default function UsersPage({ currentUser, toast }) {
                 ))}
                 {shownUsers.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{
+                    <td colSpan={8} style={{
                       padding: "28px 10px", textAlign: "center",
                       color: "var(--text-secondary)", fontSize: 14,
                     }}>
