@@ -9,6 +9,7 @@ import {
 import {
   fetchDistricts, createDistrict, deleteDistrict, assignUserDistrict,
 } from "../services/districtService";
+import { UZ_REGIONS, districtsOf } from "../utils/uzRegions";
 
 // =====================================================================
 //  FOYDALANUVCHILAR (Superadmin paneli)
@@ -28,9 +29,10 @@ export default function UsersPage({ currentUser, toast }) {
   const [form, setForm] = useState({ name: "", email: "", password: "", schoolName: "", phone: "", role: "user" });
   const [showForm, setShowForm] = useState(false);
 
-  // Tumanlar boshqaruvi
+  // Tumanlar boshqaruvi — viloyat tanlanadi, tumanlar tayyor
+  // O'zbekiston ro'yxatidan qo'shiladi
   const [showDistricts, setShowDistricts] = useState(false);
-  const [distForm, setDistForm] = useState({ name: "", region: "" });
+  const [selRegion, setSelRegion] = useState("");
 
   // Tahrirlash
   const [editUser, setEditUser] = useState(null);
@@ -131,14 +133,17 @@ export default function UsersPage({ currentUser, toast }) {
   }
 
   // ------------------------------------------------------------------
-  //  TUMANLAR BOSHQARUVI
+  //  TUMANLAR BOSHQARUVI — O'zbekiston ro'yxatidan qo'shiladi
   // ------------------------------------------------------------------
-  function handleCreateDistrict() {
-    if (!distForm.name.trim()) return toast("Tuman nomini kiriting", "warning");
+  function isDistrictAdded(regionName, districtName) {
+    return districts.some((d) => d.name === districtName && d.region === regionName);
+  }
+
+  function addDistrictFromList(regionName, districtName) {
+    if (isDistrictAdded(regionName, districtName)) return;
     run(async () => {
-      await createDistrict(distForm.name, distForm.region);
-      setDistForm({ name: "", region: "" });
-    }, "Tuman yaratildi ✓");
+      await createDistrict(districtName, regionName);
+    }, `"${districtName}" qo'shildi ✓`);
   }
 
   function handleDeleteDistrict(d) {
@@ -303,40 +308,70 @@ export default function UsersPage({ currentUser, toast }) {
             <div className="card-body">
               <div style={{ fontWeight: 800, marginBottom: 4 }}>🏛 Tumanlar boshqaruvi</div>
               <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 14 }}>
-                Tuman yarating, so'ng foydalanuvchilar jadvalidagi "Tuman" ustuni orqali
-                maktablar va tuman adminlarini shu tumanga biriktiring.
-                Tuman admini FAQAT o'z tumanidagi maktablarni ko'ra oladi.
+                Viloyatni tanlang — O'zbekistonning tayyor tumanlar ro'yxati chiqadi.
+                Kerakli tumanni bosib tizimga qo'shing, so'ng foydalanuvchilar jadvalidagi
+                "Tuman" ustuni orqali tuman adminini biriktiring.
+                Maktablar ro'yxatdan o'tishda o'z tumanini tanlasa, tizimda mavjud
+                tumanga AVTOMATIK bog'lanadi.
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Tuman nomi</label>
-                  <input
-                    className="form-control"
-                    value={distForm.name}
-                    onChange={(e) => setDistForm({ ...distForm, name: e.target.value })}
-                    placeholder="Chilonzor tumani"
-                  />
-                </div>
-                <div className="form-group">
                   <label className="form-label">Viloyat / shahar</label>
-                  <input
+                  <select
                     className="form-control"
-                    value={distForm.region}
-                    onChange={(e) => setDistForm({ ...distForm, region: e.target.value })}
-                    placeholder="Toshkent shahri"
-                  />
+                    value={selRegion}
+                    onChange={(e) => setSelRegion(e.target.value)}
+                  >
+                    <option value="">— Viloyatni tanlang —</option>
+                    {UZ_REGIONS.map((r) => (
+                      <option key={r.name} value={r.name}>{r.name}</option>
+                    ))}
+                  </select>
                 </div>
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <button className="btn btn-primary" onClick={handleCreateDistrict} disabled={busy}>
-                  {busy ? "Yaratilmoqda..." : "＋ Tuman yaratish"}
-                </button>
+                <div className="form-group" />
               </div>
 
+              {selRegion && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, color: "var(--text-secondary)", marginBottom: 8 }}>
+                    {selRegion} — tumanlar ({districtsOf(selRegion).length} ta).
+                    Qo'shish uchun bosing:
+                  </div>
+                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                    {districtsOf(selRegion).map((dName) => {
+                      const added = isDistrictAdded(selRegion, dName);
+                      return (
+                        <button
+                          key={dName}
+                          type="button"
+                          disabled={added || busy}
+                          onClick={() => addDistrictFromList(selRegion, dName)}
+                          title={added ? "Allaqachon qo'shilgan" : "Tizimga qo'shish"}
+                          style={{
+                            height: 32, padding: "0 12px", borderRadius: 999,
+                            fontSize: 12.5, fontWeight: 700,
+                            cursor: added ? "default" : "pointer",
+                            border: added ? "1.5px solid #10b981" : "1.5px solid var(--border, #e2e8f0)",
+                            background: added ? "rgba(16,185,129,.1)" : "transparent",
+                            color: added ? "#059669" : "var(--text-primary, #0f172a)",
+                            transition: "all .15s",
+                          }}
+                        >
+                          {added ? "✓ " : "＋ "}{dName}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>
+                Tizimga qo'shilgan tumanlar ({districts.length})
+              </div>
               {districts.length === 0 ? (
                 <div style={{ padding: "18px 10px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13.5 }}>
-                  Hali tuman yaratilmagan
+                  Hali tuman qo'shilmagan — yuqoridan viloyat tanlab qo'shing
                 </div>
               ) : (
                 <table className="data-table">
@@ -672,9 +707,19 @@ export default function UsersPage({ currentUser, toast }) {
                           ))}
                         </select>
                       )}
+                      {(u.regionName || u.districtName) && (
+                        <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 4 }}>
+                          📍 {[u.regionName, u.districtName].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
                       {u.role === "district_admin" && !u.districtId && (
                         <div style={{ fontSize: 11, color: "#dc2626", fontWeight: 700, marginTop: 3 }}>
                           ⚠️ Tuman biriktirilmagan!
+                        </div>
+                      )}
+                      {u.role === "user" && !u.districtId && u.districtName && (
+                        <div style={{ fontSize: 11, color: "#b45309", fontWeight: 700, marginTop: 3 }}>
+                          ⚠️ "{u.districtName}" hali tizimga qo'shilmagan
                         </div>
                       )}
                     </td>

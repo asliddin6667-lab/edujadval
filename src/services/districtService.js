@@ -81,7 +81,7 @@ export async function fetchDistrictSchools() {
   const [profRes, blobRes] = await Promise.all([
     supabase
       .from("profiles")
-      .select("id, uid, name, email, phone, school_name, status, role, sub_status, sub_expires_at, district_id")
+      .select("id, uid, name, email, phone, school_name, status, role, sub_status, sub_expires_at, district_id, region_name, district_name")
       .order("school_name"),
     supabase
       .from("schools")
@@ -106,6 +106,8 @@ export async function fetchDistrictSchools() {
         email: p.email || "",
         phone: p.phone || "",
         schoolName: p.school_name || "(nomsiz maktab)",
+        regionName: p.region_name || "",
+        districtName: p.district_name || "",
         status: p.status || "active",
         subStatus: p.sub_status || "unpaid",
         subExpiresAt: p.sub_expires_at ? new Date(p.sub_expires_at).getTime() : null,

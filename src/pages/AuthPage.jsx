@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { login, registerUser } from "../services/authService";
+import { UZ_REGIONS, districtsOf } from "../utils/uzRegions";
 import "../styles/auth.css";
 
 // =====================================================================
@@ -8,7 +9,8 @@ import "../styles/auth.css";
 //  - Qurilma cheklovi YO'Q: istalgan kompyuter/telefondan kiriladi
 //  - Email tasdiqlash YO'Q: ro'yxatdan o'tgan zahoti tizimga kiradi
 //  - Parolni unutgan foydalanuvchini ADMIN tiklab beradi
-//    (Foydalanuvchilar sahifasidagi "Parol" tugmasi orqali)
+//  - YANGI: ro'yxatdan o'tishda VILOYAT va TUMAN tanlanadi —
+//    maktab avtomatik o'z tumaniga bog'lanadi (tuman admini ko'radi)
 // =====================================================================
 
 // Admin aloqa ma'lumotlari
@@ -28,7 +30,10 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
   const savedEmail = localStorage.getItem("edu_remember_email") || "";
   // Faqat login/register rejimlari mavjud; boshqasi kelsa login'ga tushadi
   const [mode, setMode] = useState(initialMode === "register" ? "register" : "login");
-  const [form, setForm] = useState({ email: savedEmail, password: "", schoolName: "", phone: "" });
+  const [form, setForm] = useState({
+    email: savedEmail, password: "", schoolName: "", phone: "",
+    region: "", district: "",
+  });
   const [remember, setRemember] = useState(!!savedEmail);
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState("");
@@ -45,6 +50,12 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
 
   function update(key, value) {
     setForm(prev => ({ ...prev, [key]: value }));
+    clearMsgs();
+  }
+
+  // Viloyat o'zgarsa, eski tuman tanlovi tozalanadi
+  function updateRegion(value) {
+    setForm(prev => ({ ...prev, region: value, district: "" }));
     clearMsgs();
   }
 
@@ -89,6 +100,7 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
   }
 
   const isLogin = mode === "login";
+  const regionDistricts = districtsOf(form.region);
 
   return (
     <div className="edu-auth">
@@ -184,6 +196,50 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
                       onChange={e => update("schoolName", e.target.value)}
                       placeholder="Turon odob-ilm maktabi"
                     />
+                  </div>
+                </div>
+
+                {/* ---------- VILOYAT / TUMAN ---------- */}
+                <div className="edu-field">
+                  <label className="edu-field__label">VILOYAT / SHAHAR</label>
+                  <div className="edu-field__wrap">
+                    <span className="edu-field__icon">📍</span>
+                    <select
+                      className="edu-field__input"
+                      style={{ cursor: "pointer", appearance: "auto" }}
+                      value={form.region}
+                      onChange={e => updateRegion(e.target.value)}
+                    >
+                      <option value="">— Tanlang —</option>
+                      {UZ_REGIONS.map(r => (
+                        <option key={r.name} value={r.name}>{r.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="edu-field">
+                  <label className="edu-field__label">TUMAN</label>
+                  <div className="edu-field__wrap">
+                    <span className="edu-field__icon">🏛</span>
+                    <select
+                      className="edu-field__input"
+                      style={{
+                        cursor: form.region ? "pointer" : "not-allowed",
+                        appearance: "auto",
+                        opacity: form.region ? 1 : .6,
+                      }}
+                      value={form.district}
+                      onChange={e => update("district", e.target.value)}
+                      disabled={!form.region}
+                    >
+                      <option value="">
+                        {form.region ? "— Tumanni tanlang —" : "Avval viloyatni tanlang"}
+                      </option>
+                      {regionDistricts.map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 

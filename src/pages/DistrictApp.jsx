@@ -165,16 +165,30 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
 
       {/* ------------------------------ SIDEBAR ------------------------------ */}
       <aside className="da-sidebar">
-        <div className="da-sidebar__brand">
-          <div className="da-sidebar__logo">🏛</div>
-          <div>
-            <div className="da-sidebar__title">Edujadval</div>
-            <div className="da-sidebar__subtitle">TUMAN ADMINI</div>
-          </div>
+        <div className="da-sidebar__logocard">
+          <img
+            src={`${import.meta.env.BASE_URL}logo.png`}
+            alt="Edujadval.uz"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
         </div>
+        <div className="da-sidebar__rolebar">🏛 TUMAN ADMINI</div>
 
         <nav className="da-nav">
-          {NAV.map((item) => (
+          <div className="da-nav__section">ASOSIY</div>
+          {NAV.slice(0, 1).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`da-nav__item ${page === item.id ? "da-nav__item--active" : ""}`}
+              onClick={() => goto(item.id)}
+            >
+              <span className="da-nav__icon">{item.icon}</span>
+              {item.label}
+            </button>
+          ))}
+          <div className="da-nav__section">NAZORAT</div>
+          {NAV.slice(1, 5).map((item) => (
             <button
               key={item.id}
               type="button"
@@ -186,6 +200,18 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
               {item.id === "review" && pendingCount > 0 && (
                 <span className="da-nav__badge">{pendingCount}</span>
               )}
+            </button>
+          ))}
+          <div className="da-nav__section">TIZIM</div>
+          {NAV.slice(5).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`da-nav__item ${page === item.id ? "da-nav__item--active" : ""}`}
+              onClick={() => goto(item.id)}
+            >
+              <span className="da-nav__icon">{item.icon}</span>
+              {item.label}
             </button>
           ))}
         </nav>
@@ -568,6 +594,11 @@ function SchoolDetail({ school, onBack }) {
               {school.name && `Direktor: ${school.name} · `}{school.email}
               {school.phone && ` · 📞 ${school.phone}`}
             </div>
+            {(school.regionName || school.districtName) && (
+              <div style={{ fontSize: 12.5, color: "var(--da-text-2)", marginTop: 2 }}>
+                📍 {[school.regionName, school.districtName].filter(Boolean).join(" · ")}
+              </div>
+            )}
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
             <SubBadge school={school} />

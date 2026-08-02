@@ -11,7 +11,7 @@
   --da-success: #10b981;
   --da-warning: #f59e0b;
   --da-danger: #ef4444;
-  --da-bg: #f4f6fb;
+  --da-bg: #eef0fa;
   --da-card: #ffffff;
   --da-card-glass: rgba(255, 255, 255, 0.72);
   --da-text: #0f172a;
@@ -23,8 +23,8 @@
   min-height: 100vh;
   display: flex;
   background:
-    radial-gradient(1100px 500px at 85% -10%, rgba(37, 99, 235, 0.08), transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, rgba(16, 185, 129, 0.07), transparent 60%),
+    radial-gradient(1100px 500px at 85% -10%, rgba(124, 58, 237, 0.09), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(99, 102, 241, 0.08), transparent 60%),
     var(--da-bg);
   color: var(--da-text);
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -49,12 +49,44 @@ body.dark-mode .da-root {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #0f1b34 0%, #101c38 55%, #0c1730 100%);
+  background: linear-gradient(180deg, #151929 0%, #171b30 55%, #12162a 100%);
   color: #cbd5e1;
-  padding: 18px 14px;
+  padding: 16px 14px;
   z-index: 60;
 }
 
+/* Brend uslubidagi oq logo kartasi (maktab paneli bilan bir xil) */
+.da-sidebar__logocard {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+}
+
+.da-sidebar__logocard img {
+  width: 100%;
+  max-height: 62px;
+  object-fit: contain;
+}
+
+.da-sidebar__rolebar {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  color: #b7a6f5;
+  background: rgba(124, 58, 237, 0.16);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: 999px;
+  padding: 6px 10px;
+  margin-bottom: 14px;
+}
+
+/* Eski brand bloklari (moslik uchun qoladi) */
 .da-sidebar__brand {
   display: flex;
   align-items: center;
@@ -99,13 +131,23 @@ body.dark-mode .da-root {
   padding-right: 2px;
 }
 
+/* Bo'lim sarlavhasi: ASOSIY / NAZORAT / TIZIM */
+.da-nav__section {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 1.6px;
+  color: #6f7da0;
+  padding: 12px 12px 5px;
+  user-select: none;
+}
+
 .da-nav__item {
   display: flex;
   align-items: center;
   gap: 11px;
   padding: 10px 12px;
   border: none;
-  border-radius: 12px;
+  border-radius: 13px;
   background: transparent;
   color: #aab8d4;
   font-size: 13.5px;
@@ -117,15 +159,16 @@ body.dark-mode .da-root {
 }
 
 .da-nav__item:hover {
-  background: rgba(59, 130, 246, 0.13);
+  background: rgba(124, 58, 237, 0.14);
   color: #e2e8f0;
   transform: translateX(2px);
 }
 
+/* Brend binafsha gradient — maktab panelidagi aktiv tugma kabi */
 .da-nav__item--active {
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.95), rgba(79, 70, 229, 0.9));
+  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
   color: #fff;
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+  box-shadow: 0 8px 20px rgba(124, 58, 237, 0.45);
 }
 
 .da-nav__icon { font-size: 17px; width: 22px; text-align: center; }

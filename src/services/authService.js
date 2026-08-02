@@ -48,6 +48,8 @@ function profileToUser(p) {
     schoolName: p.school_name || "",
     districtId: p.district_id || null,                    // YANGI: tuman
     mustChangePassword: !!p.must_change_password,          // YANGI: parol bayrog'i
+    regionName: p.region_name || "",                       // YANGI: viloyat (matn)
+    districtName: p.district_name || "",                   // YANGI: tuman (matn)
     createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
     subscription: {
       status: p.sub_status || "unpaid",
@@ -149,13 +151,16 @@ export async function login(email, password) {
 // ---------------------------------------------------------------------
 //  RO'YXATDAN O'TISH
 // ---------------------------------------------------------------------
-export async function registerUser({ name, email, password, schoolName, phone }) {
+export async function registerUser({ name, email, password, schoolName, phone, region, district }) {
   const normalized = email.trim().toLowerCase();
 
   if (!schoolName?.trim()) throw new Error("Maktab nomini kiriting");
 
   const tel = normalizePhone(phone);
   if (!tel) throw new Error("Telefon raqamni to'g'ri kiriting: +998 90 123 45 67");
+
+  if (!region?.trim()) throw new Error("Viloyat / shaharni tanlang");
+  if (!district?.trim()) throw new Error("Tumanni tanlang");
 
   if (!normalized.includes("@")) throw new Error("Email noto'g'ri");
   if (password.length < 6) throw new Error("Parol kamida 6 ta belgi bo'lsin");
@@ -185,13 +190,34 @@ export async function registerUser({ name, email, password, schoolName, phone })
     throw new Error(error.message);
   }
 
-  // Telefonni profil qatoriga yozamiz.
+  // Telefon + viloyat/tuman ma'lumotlarini profil qatoriga yozamiz.
   // signUp foydalanuvchini vaqtincha kirgizib qo'yadi, shu sababli
   // o'z qatorini yangilashga RLS ruxsat beradi.
   if (data?.user?.id) {
+    const patch = {
+      phone: tel,
+      region_name: region.trim(),
+      district_name: district.trim(),
+    };
+
+    // Agar shu tuman tizimda allaqachon yaratilgan bo'lsa —
+    // foydalanuvchini darhol o'sha tumanga bog'laymiz. Shunda tuman
+    // admini yangi maktabni hech qanday qo'shimcha ishsiz ko'radi.
+    try {
+      const { data: dRow } = await supabase
+        .from("districts")
+        .select("id")
+        .eq("name", district.trim())
+        .eq("region", region.trim())
+        .maybeSingle();
+      if (dRow?.id) patch.district_id = dRow.id;
+    } catch {
+      /* topilmasa — superadmin keyin qo'lda biriktiradi */
+    }
+
     await supabase
       .from("profiles")
-      .update({ phone: tel })
+      .update(patch)
       .eq("id", data.user.id);
   }
 
