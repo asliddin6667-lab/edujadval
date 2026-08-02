@@ -176,6 +176,9 @@ export async function registerUser({ name, email, password, schoolName, phone, r
         school_name: schoolName.trim(),
         phone: tel,
         uid: genUid(),
+        // Zaxira sifatida metadata'da ham saqlanadi
+        region_name: region.trim(),
+        district_name: district.trim(),
       },
     },
   });
@@ -194,8 +197,15 @@ export async function registerUser({ name, email, password, schoolName, phone, r
   // signUp foydalanuvchini vaqtincha kirgizib qo'yadi, shu sababli
   // o'z qatorini yangilashga RLS ruxsat beradi.
   if (data?.user?.id) {
-    const patch = {
-      phone: tel,
+    // Telefon — asosiy ma'lumot, alohida yozamiz (viloyat ustunlari
+    // hali yaratilmagan bo'lsa ham telefon yo'qolmasin)
+    await supabase
+      .from("profiles")
+      .update({ phone: tel })
+      .eq("id", data.user.id);
+
+    // Viloyat/tuman — ustunlar mavjud bo'lsa yoziladi
+    const locPatch = {
       region_name: region.trim(),
       district_name: district.trim(),
     };
@@ -210,15 +220,20 @@ export async function registerUser({ name, email, password, schoolName, phone, r
         .eq("name", district.trim())
         .eq("region", region.trim())
         .maybeSingle();
-      if (dRow?.id) patch.district_id = dRow.id;
+      if (dRow?.id) locPatch.district_id = dRow.id;
     } catch {
       /* topilmasa — superadmin keyin qo'lda biriktiradi */
     }
 
-    await supabase
+    const { error: locErr } = await supabase
       .from("profiles")
-      .update(patch)
+      .update(locPatch)
       .eq("id", data.user.id);
+    if (locErr) {
+      // Yozilmasa ro'yxatdan o'tish baribir muvaffaqiyatli —
+      // superadmin keyin "Tahrirlash" orqali o'rnatadi.
+      console.warn("Viloyat/tuman yozilmadi:", locErr.message);
+    }
   }
 
   // Eski oqim saqlansin: "Ro'yxatdan o'tdingiz, endi login qiling"

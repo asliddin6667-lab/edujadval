@@ -8,6 +8,7 @@ import {
 } from "../services/authService";
 import {
   fetchDistricts, createDistrict, deleteDistrict, assignUserDistrict,
+  adminSetLocation,
 } from "../services/districtService";
 import { UZ_REGIONS, districtsOf } from "../utils/uzRegions";
 
@@ -36,7 +37,10 @@ export default function UsersPage({ currentUser, toast }) {
 
   // Tahrirlash
   const [editUser, setEditUser] = useState(null);
-  const [editForm, setEditForm] = useState({ name: "", email: "", password: "", schoolName: "", phone: "" });
+  const [editForm, setEditForm] = useState({
+    name: "", email: "", password: "", schoolName: "", phone: "",
+    region: "", district: "",
+  });
 
   // Parol yangilash oynasi
   const [pwUser, setPwUser] = useState(null);
@@ -46,6 +50,9 @@ export default function UsersPage({ currentUser, toast }) {
   const [query, setQuery] = useState("");
   // Obuna filtri: all | active | expired | unpaid
   const [subFilter, setSubFilter] = useState("all");
+  // Viloyat/tuman filtri
+  const [filterRegion, setFilterRegion] = useState("");
+  const [filterDistrict, setFilterDistrict] = useState("");
 
   async function loadUsers() {
     try {
@@ -188,6 +195,7 @@ export default function UsersPage({ currentUser, toast }) {
     setEditForm({
       name: u.name || "", email: u.email || "", password: "",
       schoolName: u.schoolName || "", phone: u.phone || "",
+      region: u.regionName || "", district: u.districtName || "",
     });
     setShowForm(false);
     setPwUser(null);
@@ -197,11 +205,23 @@ export default function UsersPage({ currentUser, toast }) {
     const isSelf = editUser.id === currentUser.id;
     const name = editForm.name.trim();
     if (!name) return toast("Ism kiriting", "warning");
+    if (editForm.region && !editForm.district) {
+      return toast("Tumanni ham tanlang", "warning");
+    }
+
+    // Viloyat/tuman o'zgarganda serverga yozamiz; tuman tizimda
+    // mavjud bo'lsa district_id ham avtomatik bog'lanadi (RPC ichida)
+    const locChanged =
+      editForm.region !== (editUser.regionName || "") ||
+      editForm.district !== (editUser.districtName || "");
 
     if (isSelf) {
       if (!editForm.email.trim().includes("@")) return toast("Email noto'g'ri", "warning");
       run(async () => {
         await updateOwnProfile(editForm);
+        if (locChanged && editForm.region) {
+          await adminSetLocation(editUser.id, editForm.region, editForm.district);
+        }
         setEditUser(null);
         toast("Ma'lumotlaringiz yangilandi ✓ Sahifa yangilanmoqda...", "success");
         setTimeout(() => window.location.reload(), 900);
@@ -210,6 +230,9 @@ export default function UsersPage({ currentUser, toast }) {
       run(async () => {
         await adminUpdateProfile(editUser.id, name, editForm.schoolName);
         await adminSetPhone(editUser.id, editForm.phone);
+        if (locChanged && editForm.region) {
+          await adminSetLocation(editUser.id, editForm.region, editForm.district);
+        }
         setEditUser(null);
       }, "Foydalanuvchi yangilandi ✓");
     }
@@ -262,6 +285,9 @@ export default function UsersPage({ currentUser, toast }) {
 
   const shownUsers = users.filter((u) => {
     if (subFilter !== "all" && subState(u) !== subFilter) return false;
+    // Viloyat/tuman filtri
+    if (filterRegion && (u.regionName || "") !== filterRegion) return false;
+    if (filterDistrict && (u.districtName || "") !== filterDistrict) return false;
     if (!q) return true;
     if (
       [u.uid, u.email, u.name, u.schoolName]
@@ -482,6 +508,37 @@ export default function UsersPage({ currentUser, toast }) {
                 </div>
                 <div className="form-group" />
               </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Viloyat / shahar</label>
+                  <select
+                    className="form-control"
+                    value={editForm.region}
+                    onChange={e => setEditForm({ ...editForm, region: e.target.value, district: "" })}
+                  >
+                    <option value="">— Tanlanmagan —</option>
+                    {UZ_REGIONS.map((r) => (
+                      <option key={r.name} value={r.name}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Tuman</label>
+                  <select
+                    className="form-control"
+                    value={editForm.district}
+                    onChange={e => setEditForm({ ...editForm, district: e.target.value })}
+                    disabled={!editForm.region}
+                  >
+                    <option value="">
+                      {editForm.region ? "— Tumanni tanlang —" : "Avval viloyatni tanlang"}
+                    </option>
+                    {districtsOf(editForm.region).map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
               {isSelfEdit ? (
                 <div className="form-row">
                   <div className="form-group">
@@ -609,10 +666,54 @@ export default function UsersPage({ currentUser, toast }) {
                 )}
               </div>
               <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 600 }}>
-                {(q || subFilter !== "all")
+                {(q || subFilter !== "all" || filterRegion || filterDistrict)
                   ? `${shownUsers.length} / ${users.length} foydalanuvchi`
                   : `Jami: ${users.length} foydalanuvchi`}
               </div>
+            </div>
+
+            {/* ---------------- VILOYAT / TUMAN FILTRI ---------------- */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              flexWrap: "wrap", marginBottom: 14,
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text-secondary)" }}>
+                📍 Hudud:
+              </span>
+              <select
+                className="form-control"
+                style={{ maxWidth: 230, height: 36 }}
+                value={filterRegion}
+                onChange={(e) => { setFilterRegion(e.target.value); setFilterDistrict(""); }}
+              >
+                <option value="">Barcha viloyatlar</option>
+                {UZ_REGIONS.map((r) => (
+                  <option key={r.name} value={r.name}>{r.name}</option>
+                ))}
+              </select>
+              <select
+                className="form-control"
+                style={{ maxWidth: 230, height: 36, opacity: filterRegion ? 1 : .55 }}
+                value={filterDistrict}
+                onChange={(e) => setFilterDistrict(e.target.value)}
+                disabled={!filterRegion}
+              >
+                <option value="">
+                  {filterRegion ? "Barcha tumanlar" : "Avval viloyatni tanlang"}
+                </option>
+                {districtsOf(filterRegion).map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+              {(filterRegion || filterDistrict) && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { setFilterRegion(""); setFilterDistrict(""); }}
+                >
+                  × Tozalash
+                </button>
+              )}
             </div>
 
             {/* ---------------- OBUNA FILTRI ---------------- */}

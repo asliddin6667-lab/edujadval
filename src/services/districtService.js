@@ -45,6 +45,18 @@ export async function assignUserDistrict(userId, districtId) {
   if (error) throw new Error(error.message);
 }
 
+// Superadmin foydalanuvchining viloyat/tumanini qo'lda o'rnatadi.
+// Tuman tizimda mavjud bo'lsa, server district_id ni ham avtomatik
+// bog'laydi (admin_set_location RPC ichida).
+export async function adminSetLocation(userId, region, district) {
+  const { error } = await supabase.rpc("admin_set_location", {
+    target: userId,
+    new_region: (region || "").trim(),
+    new_district: (district || "").trim(),
+  });
+  if (error) throw new Error(error.message);
+}
+
 // ---------------------------------------------------------------------
 //  DISTRICT ADMIN — O'Z TUMANI HAQIDA
 // ---------------------------------------------------------------------
