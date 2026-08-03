@@ -43,7 +43,7 @@ const TYPES = {
   jadval: {
     icon: "📅",
     title: "Dars jadvali",
-    desc: "Sinf, kun, dars raqami, fan va o'qituvchi",
+    desc: "Sinf, kun, dars raqami, fan, o'qituvchi va xona (ixtiyoriy)",
     file: "dars_jadvali_shablon.xlsx",
   },
 };
@@ -97,12 +97,12 @@ function downloadTemplate(type) {
     cols = [{ wch: 22 }, { wch: 7 }, { wch: 7 }, { wch: 7 }, { wch: 7 }, { wch: 7 }];
   } else {
     aoa = [
-      ["Sinf", "Kun", "Dars №", "Fan", "O'qituvchi"],
-      ["5-A", "Dushanba", 1, "Matematika", "Aliyev Vali G'aniyevich"],
-      ["5-A", "Dushanba", 2, "Ona tili", "Karimova Nodira Salimovna"],
-      ["5-A", "Seshanba", 1, "Fizika", "Rahimov Sardor Bekovich"],
+      ["Sinf", "Kun", "Dars №", "Fan", "O'qituvchi", "Xona"],
+      ["5-A", "Dushanba", 1, "Matematika", "Aliyev Vali G'aniyevich", "12-xona"],
+      ["5-A", "Dushanba", 2, "Ona tili", "Karimova Nodira Salimovna", "8-xona"],
+      ["5-A", "Seshanba", 1, "Fizika", "Rahimov Sardor Bekovich", "Fizika labi"],
     ];
-    cols = [{ wch: 8 }, { wch: 12 }, { wch: 8 }, { wch: 20 }, { wch: 32 }];
+    cols = [{ wch: 8 }, { wch: 12 }, { wch: 8 }, { wch: 20 }, { wch: 32 }, { wch: 14 }];
   }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -201,6 +201,7 @@ function parseJadval(aoa) {
       no: cellNum(r[2]),
       subject,
       teacher: cellStr(r[4]),
+      room: cellStr(r[5]), // ixtiyoriy — eski fayllarda bo'lmasa bo'sh qoladi
     });
   }
   if (rows.length === 0) errors.push("Dars qatorlari topilmadi — Sinf va Fan ustunlari to'ldirilishi kerak");
@@ -546,67 +547,139 @@ export function SetkaMatrix({ title, rows, classes, showTotals = true }) {
   );
 }
 
+//  Jadvalni uch kesimda ko'rsatadi: sinf / o'qituvchi / xona.
+//  Xona kesimi faqat Excel'da "Xona" ustuni to'ldirilgan bo'lsa chiqadi.
+//  Bitta katakda bir nechta dars bo'lishi mumkin (parallel/guruh) —
+//  hammasi ketma-ket ko'rsatiladi.
+const JADVAL_MODES = [
+  { id: "klass",   field: "klass",   label: "🎓 Sinf",       select: "Sinfni tanlang" },
+  { id: "teacher", field: "teacher", label: "👨‍🏫 O'qituvchi", select: "O'qituvchini tanlang" },
+  { id: "room",    field: "room",    label: "🚪 Xona",       select: "Xonani tanlang" },
+];
+
 export function JadvalViewer({ d }) {
-  const classes = useMemo(
-    () => [...new Set(d.rows.map((r) => r.klass))],
-    [d]
-  );
-  const [klass, setKlass] = useState(classes[0] || "");
+  const [mode, setMode] = useState("klass");
+  const [entity, setEntity] = useState("");
+
+  const hasRooms = useMemo(() => d.rows.some((r) => r.room), [d]);
+  const modes = hasRooms ? JADVAL_MODES : JADVAL_MODES.filter((m) => m.id !== "room");
+  const modeDef = modes.find((m) => m.id === mode) || modes[0];
+  const field = modeDef.field;
+
+  const entities = useMemo(() => {
+    const set = new Set();
+    for (const r of d.rows) {
+      const v = r[field];
+      if (v) set.add(v);
+    }
+    return [...set].sort((a, b) => String(a).localeCompare(String(b), "uz", { numeric: true }));
+  }, [d, field]);
+
+  // Kesim yoki ma'lumot o'zgarganda birinchi elementga qaytamiz
+  useEffect(() => {
+    setEntity((prev) => (entities.includes(prev) ? prev : entities[0] || ""));
+  }, [entities]);
 
   const grid = useMemo(() => {
-    const rows = d.rows.filter((r) => r.klass === klass);
+    const rows = d.rows.filter((r) => r[field] === entity);
     const days = DAYS.filter((day) => rows.some((r) => r.day === day));
     const extraDays = [...new Set(rows.map((r) => r.day).filter((day) => !DAYS.includes(day)))];
     const allDays = [...days, ...extraDays];
     const maxNo = Math.max(1, ...rows.map((r) => r.no || 0));
     const cell = {};
     for (const r of rows) {
-      cell[`${r.day}|${r.no}`] = r;
+      const key = `${r.day}|${r.no}`;
+      if (!cell[key]) cell[key] = [];
+      cell[key].push(r);
     }
-    return { allDays, maxNo, cell };
-  }, [d, klass]);
+    return { allDays, maxNo, cell, count: rows.length };
+  }, [d, field, entity]);
+
+  function cellLines(r) {
+    // Tanlangan kesimga qarab qo'shimcha satrlar
+    if (field === "klass") {
+      return [r.teacher, r.room && `🚪 ${r.room}`].filter(Boolean);
+    }
+    if (field === "teacher") {
+      return [r.klass && `🎓 ${r.klass}`, r.room && `🚪 ${r.room}`].filter(Boolean);
+    }
+    return [r.klass && `🎓 ${r.klass}`, r.teacher].filter(Boolean);
+  }
 
   return (
     <div className="da-card">
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
         <div className="da-card__title" style={{ margin: 0 }}>📅 Dars jadvali</div>
-        <select className="da-select" style={{ maxWidth: 160 }} value={klass} onChange={(e) => setKlass(e.target.value)}>
-          {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+        <div className="da-tabs" style={{ marginBottom: 0 }}>
+          {modes.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              className={`da-tab ${modeDef.id === m.id ? "da-tab--active" : ""}`}
+              onClick={() => setMode(m.id)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <select
+          className="da-select"
+          style={{ maxWidth: 240 }}
+          value={entity}
+          onChange={(e) => setEntity(e.target.value)}
+        >
+          {entities.length === 0 && <option value="">— {modeDef.select} —</option>}
+          {entities.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
         <span style={{ fontSize: 12.5, color: "var(--da-text-2)" }}>
-          Jami {d.rows.length} ta dars · {classes.length} ta sinf
+          {grid.count} ta dars · jami {d.rows.length} ta
         </span>
       </div>
-      <div className="da-tablewrap">
-        <table className="da-table dax-matrix">
-          <thead>
-            <tr>
-              <th className="dax-sticky">№</th>
-              {grid.allDays.map((day) => <th key={day}>{day}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({ length: grid.maxNo }, (_, i) => i + 1).map((no) => (
-              <tr key={no}>
-                <td className="dax-sticky"><b>{no}</b></td>
-                {grid.allDays.map((day) => {
-                  const r = grid.cell[`${day}|${no}`];
-                  return (
-                    <td key={day}>
-                      {r ? (
-                        <>
-                          <b>{r.subject}</b>
-                          {r.teacher && <div className="dax-teacher">{r.teacher}</div>}
-                        </>
-                      ) : ""}
-                    </td>
-                  );
-                })}
+      {!hasRooms && (
+        <div style={{ fontSize: 12, color: "var(--da-text-2)", marginBottom: 10 }}>
+          ℹ️ Xonalar kesimi uchun Excel faylda "Xona" ustunini (6-ustun) to'ldirib, qayta yuklang.
+        </div>
+      )}
+      {entities.length === 0 ? (
+        <div className="da-empty">
+          <div className="da-empty__icon">📅</div>
+          <div className="da-empty__title">Bu kesimda ma'lumot yo'q</div>
+          <div className="da-empty__text">Excel faylda tegishli ustun to'ldirilmagan.</div>
+        </div>
+      ) : (
+        <div className="da-tablewrap">
+          <table className="da-table dax-matrix">
+            <thead>
+              <tr>
+                <th className="dax-sticky">№</th>
+                {grid.allDays.map((day) => <th key={day}>{day}</th>)}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {Array.from({ length: grid.maxNo }, (_, i) => i + 1).map((no) => (
+                <tr key={no}>
+                  <td className="dax-sticky"><b>{no}</b></td>
+                  {grid.allDays.map((day) => {
+                    const list = grid.cell[`${day}|${no}`] || [];
+                    return (
+                      <td key={day}>
+                        {list.map((r, i) => (
+                          <div key={i} style={i > 0 ? { marginTop: 5, paddingTop: 5, borderTop: "1px dashed var(--da-border, #e2e8f0)" } : undefined}>
+                            <b>{r.subject}</b>
+                            {cellLines(r).map((line, j) => (
+                              <div key={j} className="dax-teacher">{line}</div>
+                            ))}
+                          </div>
+                        ))}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -620,63 +693,68 @@ export function JadvalViewer({ d }) {
 //  Ism bo'yicha moslashtiradi (katta-kichik harf va ortiqcha
 //  bo'shliqlarga sezgir emas). Ikkalasi ham bo'lsa — farqni ko'rsatadi.
 // =====================================================================
+export function computeTeacherHours(teachers, jadval) {
+  const norm = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const map = new Map();
+  const daySet = new Set();
+
+  if (teachers?.rows) {
+    for (const t of teachers.rows) {
+      const k = norm(t.name);
+      if (!k) continue;
+      map.set(k, {
+        name: t.name,
+        subject: t.subject || "",
+        declared: t.hours || 0,
+        actual: 0,
+        classes: new Set(),
+        days: {},
+        inExcel: true,
+      });
+    }
+  }
+
+  if (jadval?.rows) {
+    for (const r of jadval.rows) {
+      const k = norm(r.teacher);
+      if (!k) continue;
+      if (!map.has(k)) {
+        map.set(k, {
+          name: r.teacher, subject: "", declared: 0, actual: 0,
+          classes: new Set(), days: {}, inExcel: false,
+        });
+      }
+      const t = map.get(k);
+      t.actual++;
+      if (r.klass) t.classes.add(r.klass);
+      if (!t.subject && r.subject) t.subject = r.subject;
+      if (r.day) {
+        t.days[r.day] = (t.days[r.day] || 0) + 1;
+        daySet.add(r.day);
+      }
+    }
+  }
+
+  const list = [...map.values()]
+    .map((t) => ({ ...t, classes: [...t.classes] }))
+    .sort((a, b) => (b.actual - a.actual) || (b.declared - a.declared) || a.name.localeCompare(b.name));
+
+  const usedDays = [
+    ...DAYS.filter((d) => daySet.has(d)),
+    ...[...daySet].filter((d) => !DAYS.includes(d)),
+  ];
+
+  return { list, usedDays };
+}
+
 export function TeacherHoursTable({ teachers, jadval, title = "👨‍🏫 O'qituvchi haftalik soatlari" }) {
   const hasDeclared = !!teachers?.rows?.length;
   const hasJadval = !!jadval?.rows?.length;
 
-  const { list, usedDays } = useMemo(() => {
-    const norm = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
-    const map = new Map();
-    const daySet = new Set();
-
-    if (teachers?.rows) {
-      for (const t of teachers.rows) {
-        const k = norm(t.name);
-        if (!k) continue;
-        map.set(k, {
-          name: t.name,
-          subject: t.subject || "",
-          declared: t.hours || 0,
-          actual: 0,
-          classes: new Set(),
-          days: {},
-          inExcel: true,
-        });
-      }
-    }
-
-    if (jadval?.rows) {
-      for (const r of jadval.rows) {
-        const k = norm(r.teacher);
-        if (!k) continue;
-        if (!map.has(k)) {
-          map.set(k, {
-            name: r.teacher, subject: "", declared: 0, actual: 0,
-            classes: new Set(), days: {}, inExcel: false,
-          });
-        }
-        const t = map.get(k);
-        t.actual++;
-        if (r.klass) t.classes.add(r.klass);
-        if (!t.subject && r.subject) t.subject = r.subject;
-        if (r.day) {
-          t.days[r.day] = (t.days[r.day] || 0) + 1;
-          daySet.add(r.day);
-        }
-      }
-    }
-
-    const list = [...map.values()]
-      .map((t) => ({ ...t, classes: [...t.classes] }))
-      .sort((a, b) => (b.actual - a.actual) || (b.declared - a.declared) || a.name.localeCompare(b.name));
-
-    const usedDays = [
-      ...DAYS.filter((d) => daySet.has(d)),
-      ...[...daySet].filter((d) => !DAYS.includes(d)),
-    ];
-
-    return { list, usedDays };
-  }, [teachers, jadval]);
+  const { list, usedDays } = useMemo(
+    () => computeTeacherHours(teachers, jadval),
+    [teachers, jadval]
+  );
 
   if (list.length === 0) return null;
 
@@ -748,6 +826,83 @@ export function TeacherHoursTable({ teachers, jadval, title = "👨‍🏫 O'qit
       </div>
     </div>
   );
+}
+
+// =====================================================================
+//  MAKTAB HISOBOTINI EXCEL'GA EKSPORT
+//
+//  Bitta maktabning barcha ma'lumotlarini bitta .xlsx faylga yig'adi:
+//    1-varaq: Dars jadvali (uzun format)
+//    2-varaq: Sinf-fan soatlari (setka matritsasi, jamilar bilan)
+//    3-varaq: O'qituvchi haftalik soatlari (Excel vs jadval, farq)
+// =====================================================================
+export function exportSchoolExcel(schoolName, data) {
+  const wb = XLSX.utils.book_new();
+  let sheets = 0;
+
+  if (data?.jadval?.rows?.length) {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["Sinf", "Kun", "Dars №", "Fan", "O'qituvchi", "Xona"],
+      ...data.jadval.rows.map((r) => [r.klass, r.day, r.no, r.subject, r.teacher || "", r.room || ""]),
+    ]);
+    ws["!cols"] = [{ wch: 8 }, { wch: 12 }, { wch: 8 }, { wch: 22 }, { wch: 32 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws, "Jadval");
+    sheets++;
+  }
+
+  if (data?.setka?.rows?.length) {
+    const classes = data.setka.classes || [];
+    const colTotal = {};
+    let grand = 0;
+    const body = data.setka.rows.map((r) => {
+      let rowSum = 0;
+      const cells = classes.map((c) => {
+        const h = r.hours[c] || 0;
+        rowSum += h;
+        colTotal[c] = (colTotal[c] || 0) + h;
+        grand += h;
+        return h || "";
+      });
+      return [r.subject, ...cells, rowSum];
+    });
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["Fan", ...classes, "Jami"],
+      ...body,
+      ["JAMI", ...classes.map((c) => colTotal[c] || ""), grand],
+    ]);
+    ws["!cols"] = [{ wch: 22 }, ...classes.map(() => ({ wch: 7 })), { wch: 8 }];
+    XLSX.utils.book_append_sheet(wb, ws, "Soat setkasi");
+    sheets++;
+  }
+
+  const { list, usedDays } = computeTeacherHours(data?.teachers, data?.jadval);
+  if (list.length) {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["№", "F.I.Sh.", "Fani", "Excel soati", "Jadvaldagi soati", "Farq",
+        ...usedDays, "Sinflar"],
+      ...list.map((t, i) => [
+        i + 1, t.name, t.subject || "", t.declared || "", t.actual || "",
+        t.actual - t.declared,
+        ...usedDays.map((d) => t.days[d] || ""),
+        t.classes.join(", "),
+      ]),
+    ]);
+    ws["!cols"] = [
+      { wch: 5 }, { wch: 32 }, { wch: 18 }, { wch: 11 }, { wch: 14 }, { wch: 7 },
+      ...usedDays.map(() => ({ wch: 10 })), { wch: 28 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, "O'qituvchi soatlari");
+    sheets++;
+  }
+
+  if (!sheets) return false;
+
+  const safe = String(schoolName || "maktab")
+    .replace(/[\\/:*?"<>|]/g, "")
+    .trim()
+    .slice(0, 60) || "maktab";
+  XLSX.writeFile(wb, `${safe}_hisobot.xlsx`);
+  return true;
 }
 
 // =====================================================================
