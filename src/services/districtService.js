@@ -6,10 +6,16 @@
 //  - District Admin: o'z tumanidagi maktablar, jadval tekshiruvi,
 //    bildirishnoma yuborish, audit log
 //
+//  YANGI: syncAllDistricts() — O'zbekistonning BARCHA viloyat va
+//  tumanlarini uzRegions.js ro'yxatidan bazaga avtomatik qo'shadi.
+//  Nomlar aynan bir xil bo'lgani uchun ro'yxatdan o'tgan maktablar
+//  o'z tumaniga xatosiz avtomatik bog'lanadi.
+//
 //  XAVFSIZLIK: barcha cheklovlar Supabase RLS darajasida — bu fayl
 //  faqat so'rov yuboradi, ruxsatni server tekshiradi.
 // =====================================================================
 import { supabase } from "./supabaseClient";
+import { UZ_REGIONS, districtsOf } from "../utils/uzRegions";
 
 // ---------------------------------------------------------------------
 //  TUMANLAR (superadmin boshqaradi, RLS himoya qiladi)
@@ -34,6 +40,41 @@ export async function createDistrict(name, region) {
 export async function deleteDistrict(id) {
   const { error } = await supabase.from("districts").delete().eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+// ---------------------------------------------------------------------
+//  BARCHA TUMANLARNI AVTOMATIK QO'SHISH
+//  uzRegions.js dagi to'liq ro'yxat bilan bazani solishtiradi va
+//  yetishmayotgan tumanlarni bitta so'rovda qo'shadi.
+//  Bazadagi districts INSERT trigger'i (trg_link_profiles_new_district)
+//  shu tumanni tanlagan foydalanuvchilarni avtomatik bog'laydi.
+//  Qaytaradi: yangi qo'shilgan tumanlar soni.
+// ---------------------------------------------------------------------
+export async function syncAllDistricts() {
+  const { data, error } = await supabase
+    .from("districts")
+    .select("name, region");
+  if (error) throw new Error("Tumanlarni tekshirishda xato: " + error.message);
+
+  const existing = new Set(
+    (data || []).map((d) => `${(d.region || "").trim()}|${(d.name || "").trim()}`)
+  );
+
+  const missing = [];
+  for (const r of UZ_REGIONS) {
+    for (const dName of districtsOf(r.name)) {
+      if (!existing.has(`${r.name}|${dName}`)) {
+        missing.push({ name: dName, region: r.name });
+      }
+    }
+  }
+
+  if (missing.length === 0) return 0;
+
+  const { error: insErr } = await supabase.from("districts").insert(missing);
+  if (insErr) throw new Error("Tumanlarni qo'shishda xato: " + insErr.message);
+
+  return missing.length;
 }
 
 // Foydalanuvchini tumanga biriktirish (null = tumandan chiqarish)

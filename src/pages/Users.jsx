@@ -7,17 +7,20 @@ import {
   adminResetPassword, adminSetPhone, formatPhone,
 } from "../services/authService";
 import {
-  fetchDistricts, createDistrict, deleteDistrict, assignUserDistrict,
-  adminSetLocation,
+  fetchDistricts, deleteDistrict, assignUserDistrict,
+  adminSetLocation, syncAllDistricts,
 } from "../services/districtService";
 import { UZ_REGIONS, districtsOf } from "../utils/uzRegions";
 
 // =====================================================================
 //  FOYDALANUVCHILAR (Superadmin paneli)
 //
-//  YANGI (District Admin v1):
-//  - 🏛 Tumanlar boshqaruvi: yaratish / o'chirish
-//  - Rol tanlovida "Tuman admini" (district_admin) paydo bo'ldi
+//  YANGI (District Admin v2):
+//  - 🏛 BARCHA viloyat/tumanlar AVTOMATIK qo'shiladi: panel ochilganda
+//    uzRegions.js ro'yxati bilan baza solishtiriladi, yetishmagani
+//    bitta so'rovda qo'shiladi. Qo'lda qo'shish endi kerak emas.
+//  - Tumanlar bo'limida viloyat bo'yicha filtr
+//  - Rol tanlovida "Tuman admini" (district_admin)
 //  - Har bir foydalanuvchini tumanga biriktirish mumkin
 //  - "🔑 Parol" o'rnatilganda foydalanuvchi birinchi kirishda
 //    yangi parol qo'yishi MAJBURIY bo'ladi (must_change_password)
@@ -30,8 +33,8 @@ export default function UsersPage({ currentUser, toast }) {
   const [form, setForm] = useState({ name: "", email: "", password: "", schoolName: "", phone: "", role: "user" });
   const [showForm, setShowForm] = useState(false);
 
-  // Tumanlar boshqaruvi — viloyat tanlanadi, tumanlar tayyor
-  // O'zbekiston ro'yxatidan qo'shiladi
+  // Tumanlar bo'limi — endi hammasi avtomatik qo'shilgan,
+  // viloyat tanlash faqat FILTR vazifasini bajaradi
   const [showDistricts, setShowDistricts] = useState(false);
   const [selRegion, setSelRegion] = useState("");
   const [expandedDistrict, setExpandedDistrict] = useState(null);
@@ -58,6 +61,19 @@ export default function UsersPage({ currentUser, toast }) {
   async function loadUsers() {
     try {
       setLoading(true);
+
+      // BARCHA tumanlarni avtomatik sinxronlash — yetishmagani qo'shiladi.
+      // Bazadagi trigger shu tumanni tanlagan maktablarni darhol bog'laydi.
+      try {
+        const added = await syncAllDistricts();
+        if (added > 0) {
+          toast(`${added} ta viloyat/tuman avtomatik qo'shildi ✓`, "success");
+        }
+      } catch (syncErr) {
+        // Sinxronlash o'xshamasa ham panel ishlashda davom etadi
+        console.warn("Tuman sinxronlash:", syncErr.message);
+      }
+
       const [list, dList] = await Promise.all([fetchAllUsers(), fetchDistricts()]);
       setUsers(list);
       setDistricts(dList);
@@ -141,25 +157,14 @@ export default function UsersPage({ currentUser, toast }) {
   }
 
   // ------------------------------------------------------------------
-  //  TUMANLAR BOSHQARUVI — O'zbekiston ro'yxatidan qo'shiladi
+  //  TUMANLAR — hammasi avtomatik qo'shilgan; o'chirish mumkin
   // ------------------------------------------------------------------
-  function isDistrictAdded(regionName, districtName) {
-    return districts.some((d) => d.name === districtName && d.region === regionName);
-  }
-
-  function addDistrictFromList(regionName, districtName) {
-    if (isDistrictAdded(regionName, districtName)) return;
-    run(async () => {
-      await createDistrict(districtName, regionName);
-    }, `"${districtName}" qo'shildi ✓`);
-  }
-
   function handleDeleteDistrict(d) {
     const linked = users.filter((u) => u.districtId === d.id).length;
     const warn = linked
       ? `\nDIQQAT: ${linked} ta foydalanuvchi shu tumanga biriktirilgan — ular tumandan chiqariladi (o'chirilmaydi).`
       : "";
-    if (!confirm(`"${d.name}" tumani o'chirilsinmi?${warn}`)) return;
+    if (!confirm(`"${d.name}" tumani o'chirilsinmi?${warn}\nEslatma: panel qayta yuklanganda tuman avtomatik qaytadan qo'shiladi.`)) return;
     run(() => deleteDistrict(d.id), "Tuman o'chirildi", "warning");
   }
 
@@ -302,6 +307,11 @@ export default function UsersPage({ currentUser, toast }) {
     return false;
   });
 
+  // Tumanlar bo'limida ko'rsatiladigan ro'yxat (viloyat filtri bilan)
+  const shownDistricts = selRegion
+    ? districts.filter((d) => d.region === selRegion)
+    : districts;
+
   const SUB_TABS = [
     { key: "all",     label: "Hammasi",        color: "#475569" },
     { key: "active",  label: "Obuna faol",     color: "#059669" },
@@ -329,28 +339,32 @@ export default function UsersPage({ currentUser, toast }) {
       </div>
 
       <div className="page-body">
-        {/* ---------------- TUMANLAR BOSHQARUVI ---------------- */}
+        {/* ---------------- TUMANLAR ---------------- */}
         {showDistricts && (
           <div className="card" style={{ marginBottom: 18, border: "2px solid #2563eb" }}>
             <div className="card-body">
-              <div style={{ fontWeight: 800, marginBottom: 4 }}>🏛 Tumanlar boshqaruvi</div>
-              <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 14 }}>
-                Viloyatni tanlang — O'zbekistonning tayyor tumanlar ro'yxati chiqadi.
-                Kerakli tumanni bosib tizimga qo'shing, so'ng foydalanuvchilar jadvalidagi
-                "Tuman" ustuni orqali tuman adminini biriktiring.
-                Maktablar ro'yxatdan o'tishda o'z tumanini tanlasa, tizimda mavjud
-                tumanga AVTOMATIK bog'lanadi.
+              <div style={{ fontWeight: 800, marginBottom: 4 }}>🏛 Tumanlar</div>
+              <div style={{
+                fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 14,
+                padding: "9px 12px", borderRadius: 10,
+                background: "rgba(16,185,129,.08)", border: "1px solid rgba(16,185,129,.25)",
+              }}>
+                ✅ O'zbekistonning barcha viloyat va tumanlari tizimga <b>avtomatik</b> qo'shilgan.
+                Maktab ro'yxatdan o'tishda o'z tumanini tanlasa — darhol o'sha tumanga bog'lanadi.
+                Sizga faqat foydalanuvchilar jadvalidagi "Tuman" ustuni orqali
+                <b> tuman adminini</b> biriktirish qoladi.
               </div>
 
+              {/* Viloyat bo'yicha FILTR */}
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Viloyat / shahar</label>
+                  <label className="form-label">Viloyat bo'yicha ko'rish</label>
                   <select
                     className="form-control"
                     value={selRegion}
-                    onChange={(e) => setSelRegion(e.target.value)}
+                    onChange={(e) => { setSelRegion(e.target.value); setExpandedDistrict(null); }}
                   >
-                    <option value="">— Viloyatni tanlang —</option>
+                    <option value="">Barcha viloyatlar ({districts.length} ta tuman)</option>
                     {UZ_REGIONS.map((r) => (
                       <option key={r.name} value={r.name}>{r.name}</option>
                     ))}
@@ -359,46 +373,12 @@ export default function UsersPage({ currentUser, toast }) {
                 <div className="form-group" />
               </div>
 
-              {selRegion && (
-                <div style={{ marginBottom: 18 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 800, color: "var(--text-secondary)", marginBottom: 8 }}>
-                    {selRegion} — tumanlar ({districtsOf(selRegion).length} ta).
-                    Qo'shish uchun bosing:
-                  </div>
-                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                    {districtsOf(selRegion).map((dName) => {
-                      const added = isDistrictAdded(selRegion, dName);
-                      return (
-                        <button
-                          key={dName}
-                          type="button"
-                          disabled={added || busy}
-                          onClick={() => addDistrictFromList(selRegion, dName)}
-                          title={added ? "Allaqachon qo'shilgan" : "Tizimga qo'shish"}
-                          style={{
-                            height: 32, padding: "0 12px", borderRadius: 999,
-                            fontSize: 12.5, fontWeight: 700,
-                            cursor: added ? "default" : "pointer",
-                            border: added ? "1.5px solid #10b981" : "1.5px solid var(--border, #e2e8f0)",
-                            background: added ? "rgba(16,185,129,.1)" : "transparent",
-                            color: added ? "#059669" : "var(--text-primary, #0f172a)",
-                            transition: "all .15s",
-                          }}
-                        >
-                          {added ? "✓ " : "＋ "}{dName}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>
-                Tizimga qo'shilgan tumanlar ({districts.length})
+                {selRegion ? `${selRegion} — tumanlar (${shownDistricts.length})` : `Barcha tumanlar (${shownDistricts.length})`}
               </div>
-              {districts.length === 0 ? (
+              {shownDistricts.length === 0 ? (
                 <div style={{ padding: "18px 10px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13.5 }}>
-                  Hali tuman qo'shilmagan — yuqoridan viloyat tanlab qo'shing
+                  Tumanlar yuklanmoqda... "⟳ Yangilash" tugmasini bosing
                 </div>
               ) : (
                 <table className="data-table">
@@ -413,7 +393,7 @@ export default function UsersPage({ currentUser, toast }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {districts.map((d, i) => {
+                    {shownDistricts.map((d, i) => {
                       const admins = users.filter((u) => u.districtId === d.id && u.role === "district_admin");
                       const distSchools = users.filter((u) => u.districtId === d.id && u.role === "user");
                       const isOpen = expandedDistrict === d.id;
@@ -865,7 +845,9 @@ export default function UsersPage({ currentUser, toast }) {
                           >
                             <option value="">— Bog'lanmagan —</option>
                             {districts.map((d) => (
-                              <option key={d.id} value={d.id}>{d.name}</option>
+                              <option key={d.id} value={d.id}>
+                                {d.name}{d.region ? ` (${d.region})` : ""}
+                              </option>
                             ))}
                           </select>
                         </>
@@ -877,8 +859,8 @@ export default function UsersPage({ currentUser, toast }) {
                       )}
                       {u.role === "user" && !u.districtId && u.districtName && (
                         <div style={{ fontSize: 11, color: "#b45309", fontWeight: 700, marginTop: 3 }}>
-                          ⚠️ "{u.districtName}" hali tizimga qo'shilmagan —
-                          Tumanlar bo'limidan qo'shsangiz avtomatik bog'lanadi
+                          ⚠️ Avtomatik bog'lanmagan — "⟳ Yangilash" tugmasini
+                          bosing yoki tuman ro'yxatdan qo'lda tanlang
                         </div>
                       )}
                     </td>
