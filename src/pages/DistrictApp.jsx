@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   fetchMyDistrictInfo, fetchDistrictSchools, fetchSubmissions,
   reviewSubmission, sendNotification, fetchSentNotifications,
-  fetchAuditLog, logAction,
+  fetchAuditLog, logAction, adminResetPassword,
 } from "../services/districtService";
 import "./district.css";
 
@@ -11,7 +11,8 @@ import "./district.css";
 //
 //  Tuman admini FAQAT o'z tumanidagi maktablarni ko'radi (RLS).
 //  Ma'lumotlarni o'zgartira olmaydi — faqat ko'rish, tekshirish,
-//  tasdiqlash/qaytarish va bildirishnoma yuborish.
+//  tasdiqlash/qaytarish, bildirishnoma yuborish va zarur bo'lganda
+//  maktab paroliga vaqtinchalik parol o'rnatish.
 // =====================================================================
 
 const NAV = [
@@ -64,6 +65,17 @@ function timeAgo(ts) {
   return fmtDate(ts);
 }
 
+// Vaqtinchalik parol generatori — adashtiruvchi belgilar (0/O, 1/l/I)
+// ishlatilmaydi, telefonda aytib berish oson bo'lishi uchun.
+function genTempPassword(len = 10) {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let out = "";
+  const rnd = new Uint32Array(len);
+  crypto.getRandomValues(rnd);
+  for (let i = 0; i < len; i++) out += chars[rnd[i] % chars.length];
+  return out;
+}
+
 function StatusBadge({ status }) {
   const m = STATUS_META[status] || { label: status, color: "#64748b" };
   return (
@@ -96,6 +108,146 @@ function Empty({ icon, title, text }) {
       <div className="da-empty__icon">{icon}</div>
       <div className="da-empty__title">{title}</div>
       <div className="da-empty__text">{text}</div>
+    </div>
+  );
+}
+
+// =====================================================================
+//  PAROL TIKLASH MODALI
+// =====================================================================
+function ResetPasswordModal({ school, currentUser, addToast, onClose }) {
+  const [password, setPassword] = useState(() => genTempPassword());
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function handleReset() {
+    if (busy || done) return;
+    const pwd = password.trim();
+    if (pwd.length < 8) {
+      addToast("Parol kamida 8 belgidan iborat bo'lishi kerak", "warning");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await adminResetPassword(school.id, pwd);
+      setDone(true);
+      if (res?.warning) addToast(res.warning, "warning");
+      try {
+        await logAction({
+          user: currentUser,
+          action: "password_reset",
+          targetType: "user",
+          targetId: school.id,
+          details: { school: school.schoolName, email: school.email },
+        });
+      } catch {
+        /* audit yozilmasa ham asosiy amal bajarilgan */
+      }
+    } catch (e) {
+      addToast(e.message || "Parol tiklashda xatolik", "warning");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyPassword() {
+    try {
+      await navigator.clipboard.writeText(password.trim());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      addToast("Nusxalab bo'lmadi — parolni qo'lda belgilab oling", "warning");
+    }
+  }
+
+  return (
+    <div className="da-modal-backdrop" onClick={done ? undefined : onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 1000,
+        background: "rgba(15,23,42,.55)", backdropFilter: "blur(3px)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+      }}
+    >
+      <div className="da-card" onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 460, margin: 0 }}
+      >
+        <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 4 }}>
+          🔑 Parolni tiklash
+        </div>
+        <div style={{ fontSize: 13, color: "var(--da-text-2)", marginBottom: 14 }}>
+          <b>{school.schoolName}</b> · {school.email}
+        </div>
+
+        {!done ? (
+          <>
+            <div style={{
+              padding: "9px 13px", borderRadius: 11, fontSize: 12.5, marginBottom: 14,
+              background: "rgba(245,158,11,.1)", border: "1px solid rgba(245,158,11,.3)",
+              color: "#b45309", lineHeight: 1.55,
+            }}>
+              ⚠️ Maktabning hozirgi paroli bekor bo'ladi. Yangi vaqtinchalik parolni
+              maktabga yetkazing — u kirgach parolni majburiy almashtiradi.
+            </div>
+
+            <label className="da-label">Vaqtinchalik parol</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              <input
+                className="da-input"
+                style={{ flex: 1, fontFamily: "monospace", fontSize: 15, letterSpacing: 1 }}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={busy}
+              />
+              <button type="button" className="da-btn da-btn--ghost" disabled={busy}
+                title="Yangi parol yaratish"
+                onClick={() => setPassword(genTempPassword())}>
+                🎲
+              </button>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" className="da-btn da-btn--primary" disabled={busy} onClick={handleReset}>
+                {busy ? "O'rnatilmoqda..." : "🔑 Parolni o'rnatish"}
+              </button>
+              <button type="button" className="da-btn da-btn--ghost" disabled={busy} onClick={onClose}>
+                Bekor
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{
+              padding: "12px 14px", borderRadius: 12, marginBottom: 14,
+              background: "rgba(16,185,129,.1)", border: "1px solid rgba(16,185,129,.35)",
+              color: "#059669", fontWeight: 700, fontSize: 13.5,
+            }}>
+              ✅ Vaqtinchalik parol o'rnatildi
+            </div>
+
+            <label className="da-label">Yangi parol — maktabga yetkazing</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <input
+                className="da-input" readOnly
+                style={{ flex: 1, fontFamily: "monospace", fontSize: 16, letterSpacing: 1.5, fontWeight: 700 }}
+                value={password.trim()}
+                onFocus={(e) => e.target.select()}
+              />
+              <button type="button" className="da-btn da-btn--primary" onClick={copyPassword}>
+                {copied ? "✓ Nusxalandi" : "📋 Nusxalash"}
+              </button>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--da-text-2)", marginBottom: 16, lineHeight: 1.55 }}>
+              ℹ️ Bu parol qayta ko'rsatilmaydi — oynani yopishdan oldin nusxalab oling.
+              Maktab shu parol bilan kirgach, tizim yangi parol o'rnatishni talab qiladi.
+            </div>
+
+            <button type="button" className="da-btn da-btn--ghost" onClick={onClose}>
+              Yopish
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -272,7 +424,13 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
               <DashboardPage loading={loading} schools={schools} subs={subs} onOpenSchool={(s) => setSelectedSchool(s)} />
             )}
             {page === "schools" && (
-              <SchoolsPage loading={loading} schools={schools} onOpenSchool={(s) => setSelectedSchool(s)} />
+              <SchoolsPage
+                loading={loading}
+                schools={schools}
+                onOpenSchool={(s) => setSelectedSchool(s)}
+                currentUser={currentUser}
+                addToast={addToast}
+              />
             )}
             {page === "review" && (
               <SubmissionsPage
@@ -461,9 +619,10 @@ function DashboardPage({ loading, schools, subs, onOpenSchool }) {
 // =====================================================================
 //  MAKTABLAR RO'YXATI
 // =====================================================================
-function SchoolsPage({ loading, schools, onOpenSchool }) {
+function SchoolsPage({ loading, schools, onOpenSchool, currentUser, addToast }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all"); // all | with | without
+  const [resetFor, setResetFor] = useState(null); // parol tiklanayotgan maktab
 
   const q = query.trim().toLowerCase();
   const shown = schools.filter((s) => {
@@ -544,15 +703,34 @@ function SchoolsPage({ loading, schools, onOpenSchool }) {
                   <td>{s.classesCount}</td>
                   <td>{timeAgo(s.updatedAt)}</td>
                   <td>
-                    <button type="button" className="da-btn da-btn--primary da-btn--sm" onClick={() => onOpenSchool(s)}>
-                      👁 Ko'rish
-                    </button>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" className="da-btn da-btn--primary da-btn--sm" onClick={() => onOpenSchool(s)}>
+                        👁 Ko'rish
+                      </button>
+                      <button
+                        type="button"
+                        className="da-btn da-btn--warning da-btn--sm"
+                        title="Vaqtinchalik parol o'rnatish"
+                        onClick={() => setResetFor(s)}
+                      >
+                        🔑 Parol
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {resetFor && (
+        <ResetPasswordModal
+          school={resetFor}
+          currentUser={currentUser}
+          addToast={addToast}
+          onClose={() => setResetFor(null)}
+        />
       )}
     </div>
   );

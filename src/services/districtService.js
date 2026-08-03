@@ -353,4 +353,48 @@ export async function resetSchoolPassword(targetUserId, newPassword) {
   }
   if (data?.error) throw new Error(data.error);
   return data; // { ok: true } yoki { ok: true, warning: "..." }
+}// =====================================================================
+//  QO'SHIMCHA: districtService.js faylining ENG OXIRIGA qo'shing
+//
+//  Eslatma: bu fayl ichida allaqachon `supabase` klienti import
+//  qilingan bo'lishi kerak (boshqa funksiyalar undan foydalanadi).
+//  Agar klient boshqa nom bilan import qilingan bo'lsa, shu nomga
+//  moslang.
+// =====================================================================
+
+// Edge Function nomi. Supabase Dashboard'da funksiya "quick-handler"
+// nomi bilan deploy qilingan. Agar keyinchalik "admin-reset-password"
+// nomli alohida funksiya yaratsangiz, shu qatorni o'zgartirish kifoya.
+const RESET_PASSWORD_FN = "quick-handler";
+
+/**
+ * Tuman admini / superadmin maktab foydalanuvchisiga vaqtinchalik
+ * parol o'rnatadi (Edge Function orqali, service key serverda qoladi).
+ *
+ * @param {string} targetUserId - maktab profilining id'si (profiles.id)
+ * @param {string} newPassword  - vaqtinchalik parol (kamida 8 belgi)
+ */
+export async function adminResetPassword(targetUserId, newPassword) {
+  const { data, error } = await supabase.functions.invoke(RESET_PASSWORD_FN, {
+    body: { target_user_id: targetUserId, new_password: newPassword },
+  });
+
+  if (error) {
+    // Edge Function xato status qaytarsa, javob tanasidagi aniq
+    // xabarni o'qishga harakat qilamiz
+    let msg = error.message || "Parol tiklashda xatolik";
+    try {
+      const ctx = error.context;
+      if (ctx && typeof ctx.json === "function") {
+        const body = await ctx.json();
+        if (body?.error) msg = body.error;
+      }
+    } catch {
+      /* jim */
+    }
+    throw new Error(msg);
+  }
+
+  if (data?.error) throw new Error(data.error);
+  return data; // { ok: true } yoki { ok: true, warning: "..." }
 }
