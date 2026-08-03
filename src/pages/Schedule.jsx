@@ -83,7 +83,7 @@ export default function SchedulePage({
   const [generating, setGenerating] = useState(false);
   const [genProgress, setGenProgress] = useState(0);
   const [genRound, setGenRound] = useState(0);
-  const [genDone, setGenDone] = useState(false); // qahramon g'alaba holati (kulib ko'z qisadi)
+  const [genDone, setGenDone] = useState(false); // tugagach ✓ ko'rsatiladi
 
   const subjectMap = useMemo(() => new Map(subjects.map((s, i) => [s.id, { ...s, _colorIndex: i }])), [subjects]);
   const teacherMap = useMemo(() => new Map(teachers.map((t) => [t.id, t])), [teachers]);
@@ -326,9 +326,9 @@ export default function SchedulePage({
       } else {
         toast?.(`Jadval tuzildi — ${requiredTotal - bestPlaced} soat tushmadi (pastdagi tavsiyalarga qarang)`, "warning");
       }
-      // Qahramon quvonadi: kulib, ko'zini qisib qo'yadi 😉
+      // Tugadi: yashil ✓ belgisi qisqa ko'rsatiladi
       setGenDone(true);
-      await new Promise((res) => setTimeout(res, 2000));
+      await new Promise((res) => setTimeout(res, 1200));
     } finally {
       setGenerating(false);
       setGenDone(false);
@@ -980,7 +980,7 @@ export default function SchedulePage({
           <div className="sch-actions">
             {setSchedule && (
               <button className="sch-btn sch-btn-hero" onClick={handleGenerate} type="button" disabled={generating}>
-                {generating ? "🤖 Tuzilmoqda…" : "⚡ Avtomatik jadval"}
+                {generating ? "⏳ Bajarilyapti…" : "⚡ Avtomatik jadval"}
               </button>
             )}
             <button className="sch-btn sch-btn-soft-green" onClick={exportClassBasedSchedule} type="button">📥 Excel</button>
@@ -991,67 +991,19 @@ export default function SchedulePage({
         </div>
 
         {generating && (
-          <div className="genchar-overlay">
+          <div className="gen-overlay">
             <style>{`
-              .genchar-overlay{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(20,18,45,.55);backdrop-filter:blur(4px);}
-              .genchar-stage{position:relative;width:280px;height:280px;}
-              .genchar-walk{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;animation:genchar-wander 4.2s ease-in-out infinite;}
-              .genchar-done .genchar-walk{animation:genchar-pop .55s cubic-bezier(.2,1.6,.4,1) both;}
-              @keyframes genchar-wander{0%{transform:translate(-70px,10px) rotate(-7deg)}25%{transform:translate(0,-45px) rotate(5deg)}50%{transform:translate(70px,10px) rotate(7deg)}75%{transform:translate(0,45px) rotate(-5deg)}100%{transform:translate(-70px,10px) rotate(-7deg)}}
-              @keyframes genchar-pop{0%{transform:translate(0,0) scale(.9)}60%{transform:translate(0,0) scale(1.22)}100%{transform:translate(0,0) scale(1.08)}}
-              .genchar-face{position:relative;width:118px;height:118px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe98a,#ffc93c 70%,#f5a623);box-shadow:0 12px 34px rgba(0,0,0,.35),inset 0 -8px 14px rgba(220,130,0,.35);}
-              .genchar-eye{position:absolute;top:42px;width:13px;height:15px;border-radius:50%;background:#2c2530;animation:genchar-blink 2.6s infinite;}
-              .genchar-eye.left{left:32px}.genchar-eye.right{right:32px;animation-delay:.15s}
-              @keyframes genchar-blink{0%,91%,100%{transform:scaleY(1)}94%{transform:scaleY(.12)}}
-              .genchar-mouth{position:absolute;left:50%;bottom:26px;width:26px;height:10px;transform:translateX(-50%);border-radius:0 0 20px 20px;background:#2c2530;transition:all .25s;}
-              .genchar-cheek{position:absolute;top:64px;width:18px;height:10px;border-radius:50%;background:#ff8fa3;opacity:0;filter:blur(1px);transition:opacity .3s;}
-              .genchar-cheek.left{left:18px}.genchar-cheek.right{right:18px}
-              /* G'alaba: katta tabassum + o'ng ko'z qisiladi + qizil yonoqlar */
-              .genchar-done .genchar-mouth{width:52px;height:26px;border-radius:0 0 52px 52px;bottom:20px;}
-              .genchar-done .genchar-eye{animation:none;}
-              .genchar-done .genchar-eye.right{transform:scaleY(.12);height:14px;border-radius:8px;}
-              .genchar-done .genchar-cheek{opacity:1;}
-              .genchar-sat{position:absolute;inset:0;animation:genchar-spin 2.6s linear infinite;pointer-events:none;}
-              .genchar-sat span{position:absolute;top:50%;left:50%;font-size:26px;transform:translate(96px,-50%);}
-              .genchar-sat.s2{animation-duration:3.4s;animation-direction:reverse}
-              .genchar-sat.s2 span{transform:translate(-122px,-50%);}
-              .genchar-sat.s3{animation-duration:4.4s}
-              .genchar-sat.s3 span{transform:translate(0,-118px);}
-              .genchar-done .genchar-sat{animation-play-state:paused;opacity:0;transition:opacity .3s;}
-              @keyframes genchar-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-              .genchar-label{margin-top:10px;color:#fff;font-size:19px;font-weight:700;text-shadow:0 2px 10px rgba(0,0,0,.4);letter-spacing:.3px;animation:genchar-fade 1.6s ease-in-out infinite alternate;}
-              .genchar-done ~ .genchar-label, .genchar-label.done{animation:none;}
-              @keyframes genchar-fade{from{opacity:.75}to{opacity:1}}
-              .genchar-confetti{position:absolute;inset:0;pointer-events:none;}
-              .genchar-confetti span{position:absolute;top:50%;left:50%;font-size:22px;opacity:0;}
-              .genchar-done .genchar-confetti span{animation:genchar-burst .9s ease-out both;}
-              .genchar-confetti span:nth-child(1){--tx:-110px;--ty:-90px}
-              .genchar-confetti span:nth-child(2){--tx:110px;--ty:-95px;animation-delay:.05s!important}
-              .genchar-confetti span:nth-child(3){--tx:-125px;--ty:40px;animation-delay:.1s!important}
-              .genchar-confetti span:nth-child(4){--tx:125px;--ty:45px;animation-delay:.08s!important}
-              .genchar-confetti span:nth-child(5){--tx:0px;--ty:-130px;animation-delay:.12s!important}
-              @keyframes genchar-burst{0%{opacity:0;transform:translate(-50%,-50%) scale(.4)}30%{opacity:1}100%{opacity:0;transform:translate(calc(-50% + var(--tx)),calc(-50% + var(--ty))) scale(1.15) rotate(40deg)}}
+              .gen-overlay{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:rgba(15,18,34,.5);backdrop-filter:blur(6px);}
+              .gen-spinner{width:62px;height:62px;border-radius:50%;border:4px solid rgba(255,255,255,.22);border-top-color:#ffffff;animation:gen-spin .8s linear infinite;}
+              @keyframes gen-spin{to{transform:rotate(360deg)}}
+              .gen-check{width:62px;height:62px;border-radius:50%;border:4px solid #22c55e;background:rgba(34,197,94,.15);display:flex;align-items:center;justify-content:center;color:#4ade80;font-size:30px;font-weight:900;animation:gen-pop .4s cubic-bezier(.2,1.6,.4,1) both;}
+              @keyframes gen-pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+              .gen-text{color:#ffffff;font-size:18px;font-weight:700;letter-spacing:.3px;text-shadow:0 2px 10px rgba(0,0,0,.35);}
+              .gen-sub{margin-top:-10px;color:rgba(255,255,255,.7);font-size:13px;font-weight:600;}
             `}</style>
-            <div className={`genchar-stage ${genDone ? "genchar-done" : ""}`}>
-              <div className="genchar-walk">
-                <div className="genchar-face">
-                  <div className="genchar-eye left" />
-                  <div className="genchar-eye right" />
-                  <div className="genchar-cheek left" />
-                  <div className="genchar-cheek right" />
-                  <div className="genchar-mouth" />
-                </div>
-              </div>
-              <div className="genchar-sat"><span>📚</span></div>
-              <div className="genchar-sat s2"><span>⚡</span></div>
-              <div className="genchar-sat s3"><span>✏️</span></div>
-              <div className="genchar-confetti">
-                <span>🎉</span><span>✨</span><span>🎊</span><span>⭐</span><span>🎉</span>
-              </div>
-            </div>
-            <div className={`genchar-label ${genDone ? "done" : ""}`}>
-              {genDone ? "Tayyor! 😉" : "Jadval tuzilmoqda…"}
-            </div>
+            {genDone ? <div className="gen-check">✓</div> : <div className="gen-spinner" />}
+            <div className="gen-text">{genDone ? "Tayyor!" : "Bajarilyapti…"}</div>
+            {!genDone && <div className="gen-sub">{genProgress}% · {genRound}-urinish</div>}
           </div>
         )}
       </div>
