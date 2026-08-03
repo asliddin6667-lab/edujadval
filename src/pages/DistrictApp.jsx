@@ -7,7 +7,7 @@ import {
 import { fetchExcelStore } from "../services/districtExcelService";
 import {
   ExcelDataPage, ReportsPage, SetkaMatrix, JadvalViewer,
-  TeacherHoursTable, exportSchoolExcel,
+  TeacherHoursTable, exportSchoolExcel, buildAutoExcelData,
 } from "./districtExcel";
 import "./district.css";
 
@@ -771,14 +771,25 @@ function SchoolDetail({ school, onBack, addToast }) {
   const subjects = Array.isArray(d.subjects) ? d.subjects : [];
   const rooms = Array.isArray(d.rooms) ? d.rooms : [];
 
-  const jadvalRows = excel?.jadval?.rows?.length || 0;
-  const setkaRows = excel?.setka?.rows?.length || 0;
-  const excelTeacherRows = excel?.teachers?.rows?.length || 0;
-  const hasExcelData = jadvalRows > 0 || setkaRows > 0 || excelTeacherRows > 0;
+  // Maktabning avtomatik sinxronlangan ma'lumoti (cloudSync orqali kelgan
+  // haqiqiy jadval) — ustuvor manba. Excel yuklama zaxira sifatida qoladi.
+  const auto = useMemo(() => buildAutoExcelData(d), [d]);
 
-  // Maktab statistikasi — Excel ma'lumotlaridan hisoblanadi
+  const jadvalData = auto?.jadval || excel?.jadval || null;
+  const setkaData = auto?.setka || excel?.setka || null;
+  const teachersData = auto?.teachers || excel?.teachers || null;
+  const isAutoJadval = !!auto?.jadval;
+  const isAutoSetka = !!auto?.setka;
+  const isAutoTeachers = !!auto?.teachers;
+
+  const jadvalRows = jadvalData?.rows?.length || 0;
+  const setkaRows = setkaData?.rows?.length || 0;
+  const teacherRowsN = teachersData?.rows?.length || 0;
+  const hasAnyData = jadvalRows > 0 || setkaRows > 0 || teacherRowsN > 0;
+
+  // Maktab statistikasi — jadval va setkadan hisoblanadi
   const stats = useMemo(() => {
-    const jRows = excel?.jadval?.rows || [];
+    const jRows = jadvalData?.rows || [];
     const jClasses = new Set();
     const jTeachers = new Set();
     const jRooms = new Set();
@@ -788,27 +799,44 @@ function SchoolDetail({ school, onBack, addToast }) {
       if (r.room) jRooms.add(r.room);
     }
     let setkaHours = 0;
-    if (excel?.setka?.rows) {
-      for (const r of excel.setka.rows) {
-        for (const c of excel.setka.classes || []) setkaHours += r.hours[c] || 0;
+    if (setkaData?.rows) {
+      for (const r of setkaData.rows) {
+        for (const c of setkaData.classes || []) setkaHours += r.hours[c] || 0;
       }
     }
     return {
       lessons: jRows.length,
-      classes: jClasses.size || (excel?.setka?.classes?.length || 0),
-      teachers: jTeachers.size || excelTeacherRows,
+      classes: jClasses.size || (setkaData?.classes?.length || 0),
+      teachers: jTeachers.size || teacherRowsN,
       rooms: jRooms.size,
       setkaHours,
     };
-  }, [excel, excelTeacherRows]);
+  }, [jadvalData, setkaData, teacherRowsN]);
 
   function handleExport() {
-    const ok = exportSchoolExcel(school.schoolName, excel);
+    const ok = exportSchoolExcel(
+      school.schoolName,
+      { jadval: jadvalData, setka: setkaData, teachers: teachersData },
+      { declaredLabel: isAutoTeachers ? "Biriktirilgan soat" : "Excel soati" }
+    );
     if (addToast) {
       addToast(ok
         ? "Maktab hisoboti Excel'ga yuklandi ✓"
-        : "Eksport uchun ma'lumot yo'q — avval Excel fayllarni yuklang", ok ? "success" : "warning");
+        : "Eksport uchun ma'lumot yo'q", ok ? "success" : "warning");
     }
+  }
+
+  function SourceNote({ isAuto }) {
+    return (
+      <div style={{
+        fontSize: 12, fontWeight: 700, marginBottom: 8,
+        color: isAuto ? "#059669" : "var(--da-text-2)",
+      }}>
+        {isAuto
+          ? "🔄 Manba: maktab tizimidan avtomatik sinxronlangan"
+          : "📥 Manba: Excel yuklama"}
+      </div>
+    );
   }
 
   const TABS = [
@@ -825,16 +853,6 @@ function SchoolDetail({ school, onBack, addToast }) {
     if (!x) return "—";
     if (typeof x === "string") return x;
     return x.name || x.fullName || x.title || "—";
-  }
-
-  function ExcelEmpty({ icon, title }) {
-    return (
-      <Empty
-        icon={icon}
-        title={title}
-        text={`Bu maktab uchun "📥 Excel ma'lumotlar" bo'limida tegishli faylni yuklang — shu yerda avtomatik ko'rinadi.`}
-      />
-    );
   }
 
   return (
@@ -858,14 +876,14 @@ function SchoolDetail({ school, onBack, addToast }) {
             <SubBadge school={school} />
             {jadvalRows > 0 && (
               <span className="da-badge" style={{ background: "#10b9811c", color: "#059669" }}>
-                📅 Jadval yuklangan
+                {isAutoJadval ? "🔄 Jadval sinxronlangan" : "📥 Jadval (Excel)"}
               </span>
             )}
             <button
               type="button"
               className="da-btn da-btn--primary da-btn--sm"
               title="Jadval, setka va o'qituvchi soatlarini bitta Excel faylga yuklab olish"
-              disabled={excelLoading || !hasExcelData}
+              disabled={!hasAnyData}
               onClick={handleExport}
             >
               📤 Excel hisobot
@@ -882,16 +900,12 @@ function SchoolDetail({ school, onBack, addToast }) {
       </div>
 
       {/* 📊 Maktab statistikasi */}
-      {excelLoading ? (
-        <div className="da-kpis">
-          {[0, 1, 2, 3, 4].map((i) => <div key={i} className="da-skel" style={{ height: 82 }} />)}
-        </div>
-      ) : hasExcelData ? (
+      {hasAnyData ? (
         <div className="da-kpis">
           {[
-            { icon: "📚", label: "Haftalik darslar (jadval)", value: stats.lessons,    bg: "rgba(168,85,247,.13)" },
-            { icon: "🎓", label: "Sinflar",                    value: stats.classes,   bg: "rgba(14,165,233,.13)" },
-            { icon: "👨‍🏫", label: "O'qituvchilar",             value: stats.teachers,  bg: "rgba(99,102,241,.13)" },
+            { icon: "📚", label: "Haftalik darslar (jadval)", value: stats.lessons || "—", bg: "rgba(168,85,247,.13)" },
+            { icon: "🎓", label: "Sinflar",                    value: stats.classes || "—", bg: "rgba(14,165,233,.13)" },
+            { icon: "👨‍🏫", label: "O'qituvchilar",             value: stats.teachers || "—", bg: "rgba(99,102,241,.13)" },
             { icon: "🚪", label: "Xonalar (jadvalda)",         value: stats.rooms || "—", bg: "rgba(37,99,235,.13)" },
             { icon: "🕐", label: "Setka jami soat/hafta",      value: stats.setkaHours || "—", bg: "rgba(16,185,129,.13)" },
           ].map((k, i) => (
@@ -903,6 +917,10 @@ function SchoolDetail({ school, onBack, addToast }) {
               </div>
             </div>
           ))}
+        </div>
+      ) : excelLoading ? (
+        <div className="da-kpis">
+          {[0, 1, 2, 3, 4].map((i) => <div key={i} className="da-skel" style={{ height: 82 }} />)}
         </div>
       ) : null}
 
@@ -989,38 +1007,62 @@ function SchoolDetail({ school, onBack, addToast }) {
         )}
 
         {tab === "jadval" && (
-          excelLoading
-            ? <div className="da-skel" style={{ height: 240 }} />
-            : jadvalRows > 0
-              ? <JadvalViewer d={excel.jadval} />
-              : <ExcelEmpty icon="📅" title="Dars jadvali hali yuklanmagan" />
+          jadvalRows > 0 ? (
+            <>
+              <SourceNote isAuto={isAutoJadval} />
+              <JadvalViewer d={jadvalData} />
+            </>
+          ) : excelLoading ? (
+            <div className="da-skel" style={{ height: 240 }} />
+          ) : (
+            <Empty
+              icon="📅"
+              title="Maktab hali jadval tuzmagan"
+              text={`Maktab o'z tizimida jadval yaratsa, bu yerda avtomatik ko'rinadi. Zarur bo'lsa "📥 Excel ma'lumotlar" bo'limida qo'lda ham yuklash mumkin.`}
+            />
+          )
         )}
 
         {tab === "setka" && (
-          excelLoading
-            ? <div className="da-skel" style={{ height: 240 }} />
-            : setkaRows > 0
-              ? (
-                <SetkaMatrix
-                  title="🕐 Sinf-fan haftalik soatlari"
-                  rows={excel.setka.rows}
-                  classes={excel.setka.classes}
-                />
-              )
-              : <ExcelEmpty icon="🕐" title="Soat setkasi hali yuklanmagan" />
+          setkaRows > 0 ? (
+            <>
+              <SourceNote isAuto={isAutoSetka} />
+              <SetkaMatrix
+                title="🕐 Sinf-fan haftalik soatlari"
+                rows={setkaData.rows}
+                classes={setkaData.classes}
+              />
+            </>
+          ) : excelLoading ? (
+            <div className="da-skel" style={{ height: 240 }} />
+          ) : (
+            <Empty
+              icon="🕐"
+              title="Soat setkasi hali yo'q"
+              text={`Maktab "Sinf fanlari" bo'limini to'ldirsa avtomatik ko'rinadi. Zarur bo'lsa "📥 Excel ma'lumotlar" bo'limida qo'lda yuklash mumkin.`}
+            />
+          )
         )}
 
         {tab === "hours" && (
-          excelLoading
-            ? <div className="da-skel" style={{ height: 240 }} />
-            : (excelTeacherRows > 0 || jadvalRows > 0)
-              ? (
-                <TeacherHoursTable
-                  teachers={excel.teachers}
-                  jadval={excel.jadval}
-                />
-              )
-              : <ExcelEmpty icon="⏱" title="O'qituvchi soatlari uchun ma'lumot yo'q" />
+          (teacherRowsN > 0 || jadvalRows > 0) ? (
+            <>
+              <SourceNote isAuto={isAutoTeachers || isAutoJadval} />
+              <TeacherHoursTable
+                teachers={teachersData}
+                jadval={jadvalData}
+                declaredLabel={isAutoTeachers ? "Biriktirilgan soat" : "Excel soati"}
+              />
+            </>
+          ) : excelLoading ? (
+            <div className="da-skel" style={{ height: 240 }} />
+          ) : (
+            <Empty
+              icon="⏱"
+              title="O'qituvchi soatlari uchun ma'lumot yo'q"
+              text={`Maktab o'qituvchilar va jadvalini kiritsa avtomatik ko'rinadi.`}
+            />
+          )
         )}
       </div>
     </>

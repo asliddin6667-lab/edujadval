@@ -685,6 +685,129 @@ export function JadvalViewer({ d }) {
 }
 
 // =====================================================================
+//  MAKTABNING AVTOMATIK SINXRONLANGAN MA'LUMOTINI O'GIRISH
+//
+//  Maktab o'z tizimida jadval tuzsa, cloudSync uni `schools.data`
+//  blob'iga yozadi (schedule, timeslots, classes, subjects, teachers,
+//  rooms, classSubjects). Bu funksiya o'sha xom blob'ni Excel yuklama
+//  bilan BIR XIL shaklga keltiradi — shunda JadvalViewer, SetkaMatrix,
+//  TeacherHoursTable va exportSchoolExcel hech o'zgarishsiz ishlaydi.
+//
+//  Qaytaradi: { jadval, setka, teachers } — bo'sh bo'limlar null.
+// =====================================================================
+export function buildAutoExcelData(d) {
+  if (!d || typeof d !== "object") return null;
+
+  const classes = Array.isArray(d.classes) ? d.classes : [];
+  const subjects = Array.isArray(d.subjects) ? d.subjects : [];
+  const teachers = Array.isArray(d.teachers) ? d.teachers : [];
+  const rooms = Array.isArray(d.rooms) ? d.rooms : [];
+  const timeslots = Array.isArray(d.timeslots) ? d.timeslots : [];
+  const schedule = d.schedule && typeof d.schedule === "object" ? d.schedule : {};
+  const classSubjects = d.classSubjects && typeof d.classSubjects === "object" ? d.classSubjects : {};
+
+  const clsName = new Map(classes.map((c) => [c.id, c.name]));
+  const subjName = new Map(subjects.map((s) => [s.id, s.name]));
+  const tchName = new Map(teachers.map((t) => [t.id, t.name]));
+  const roomName = new Map(rooms.map((r) => [r.id, r.name]));
+  const tsById = new Map(timeslots.map((ts) => [ts.id, ts]));
+
+  // ---------- 1) Dars jadvali (uzun format) ----------
+  const jadvalRows = [];
+  for (const day of Object.keys(schedule)) {
+    const slots = schedule[day];
+    if (!slots || typeof slots !== "object") continue;
+    for (const tsId of Object.keys(slots)) {
+      const cell = slots[tsId];
+      if (!Array.isArray(cell)) continue;
+      const ts = tsById.get(tsId);
+      const no = Number(ts?.lessonNumber || 0);
+      for (const l of cell) {
+        if (!l || !l.subjectId) continue;
+        const base = subjName.get(l.subjectId) || "Fan";
+        const alt = l.alternating && l.altSubjectId ? subjName.get(l.altSubjectId) : "";
+        let label = alt ? `${base} / ${alt}` : base;
+        if (l.groupPart || l.groupName) label += ` (${l.groupPart || l.groupName})`;
+        const teacher = tchName.get(l.teacherId) || "";
+        const room = roomName.get(l.roomId) || "";
+        const ids = Array.isArray(l.classIds) && l.classIds.length
+          ? l.classIds
+          : [l.classId].filter(Boolean);
+        for (const cid of ids) {
+          const klass = clsName.get(cid);
+          if (!klass) continue;
+          jadvalRows.push({ klass, day, no, subject: label, teacher, room });
+        }
+      }
+    }
+  }
+  const dayIdx = (day) => { const i = DAYS.indexOf(day); return i === -1 ? 99 : i; };
+  jadvalRows.sort((a, b) =>
+    String(a.klass).localeCompare(String(b.klass), "uz", { numeric: true })
+    || (dayIdx(a.day) - dayIdx(b.day))
+    || (a.no - b.no)
+  );
+
+  // ---------- 2) Sinf-fan soatlari (classSubjects'dan setka) ----------
+  const setkaClasses = classes
+    .map((c) => c.name)
+    .filter(Boolean)
+    .sort((a, b) => String(a).localeCompare(String(b), "uz", { numeric: true }));
+  const bySubject = new Map(); // fan nomi -> { subject, hours: { sinf: soat } }
+  for (const c of classes) {
+    const list = Array.isArray(classSubjects[c.id]) ? classSubjects[c.id] : [];
+    for (const a of list) {
+      const add = (sid, h) => {
+        const nm = subjName.get(sid);
+        if (!nm || !h) return;
+        if (!bySubject.has(nm)) bySubject.set(nm, { subject: nm, hours: {} });
+        const row = bySubject.get(nm);
+        row.hours[c.name] = (row.hours[c.name] || 0) + h;
+      };
+      const h = Number(a.weeklyHours || 0);
+      add(a.subjectId, h);
+      if (a.swapEnabled && a.swapSubjectId) add(a.swapSubjectId, h);
+    }
+  }
+  const setkaRows = [...bySubject.values()]
+    .sort((a, b) => a.subject.localeCompare(b.subject, "uz"));
+
+  // ---------- 3) O'qituvchilar (biriktirilgan haftalik soat bilan) ----------
+  // Biriktirilgan soat = Sinf fanlari bo'limida shu ustozga berilgan
+  // haftalik soatlar yig'indisi (oddiy + bo'lingan guruh + daraja guruhi).
+  const declared = new Map(); // teacherId -> soat
+  const addDecl = (tid, h) => {
+    if (!tid || !h) return;
+    declared.set(tid, (declared.get(tid) || 0) + h);
+  };
+  for (const c of classes) {
+    const list = Array.isArray(classSubjects[c.id]) ? classSubjects[c.id] : [];
+    for (const a of list) {
+      const h = Number(a.weeklyHours || 0);
+      if (a.levelGroupEnabled && Array.isArray(a.levelGroups) && a.levelGroups.length) {
+        for (const g of a.levelGroups) addDecl(g.teacherId, h);
+      } else {
+        addDecl(a.teacherId, h);
+        addDecl(a.teacherId2, h);
+      }
+    }
+  }
+  const teachersRows = teachers
+    .filter((t) => t?.name)
+    .map((t) => {
+      const sids = Array.isArray(t.subjectIds) ? t.subjectIds : (t.subjectId ? [t.subjectId] : []);
+      const subj = sids.map((sid) => subjName.get(sid)).filter(Boolean).join(", ");
+      return { name: t.name, subject: subj, hours: declared.get(t.id) || 0 };
+    });
+
+  return {
+    jadval: jadvalRows.length ? { rows: jadvalRows } : null,
+    setka: setkaRows.length ? { rows: setkaRows, classes: setkaClasses } : null,
+    teachers: teachersRows.length ? { rows: teachersRows } : null,
+  };
+}
+
+// =====================================================================
 //  O'QITUVCHI HAFTALIK SOATLARI
 //
 //  Ikki manbani birlashtiradi:
@@ -747,7 +870,7 @@ export function computeTeacherHours(teachers, jadval) {
   return { list, usedDays };
 }
 
-export function TeacherHoursTable({ teachers, jadval, title = "👨‍🏫 O'qituvchi haftalik soatlari" }) {
+export function TeacherHoursTable({ teachers, jadval, title = "👨‍🏫 O'qituvchi haftalik soatlari", declaredLabel = "Excel soati" }) {
   const hasDeclared = !!teachers?.rows?.length;
   const hasJadval = !!jadval?.rows?.length;
 
@@ -766,12 +889,12 @@ export function TeacherHoursTable({ teachers, jadval, title = "👨‍🏫 O'qit
     <div className="da-card">
       <div className="da-card__title">
         {title} · {list.length} ta o'qituvchi
-        {hasDeclared && <> · Excel: {totalDeclared} soat</>}
+        {hasDeclared && <> · {declaredLabel}: {totalDeclared}</>}
         {hasJadval && <> · Jadvalda: {totalActual} soat</>}
       </div>
       {showDiff && (
         <div style={{ fontSize: 12.5, color: "var(--da-text-2)", marginBottom: 10, lineHeight: 1.55 }}>
-          "Farq" ustuni: jadvaldagi haqiqiy soat − Excel'da e'lon qilingan soat.
+          "Farq" ustuni: jadvaldagi haqiqiy soat − {declaredLabel.toLowerCase()}.
           <b style={{ color: "#059669" }}> ✓</b> — mos,
           <b style={{ color: "#b45309" }}> ±</b> — mos emas (tekshirish tavsiya etiladi).
         </div>
@@ -783,7 +906,7 @@ export function TeacherHoursTable({ teachers, jadval, title = "👨‍🏫 O'qit
               <th className="dax-sticky">#</th>
               <th>F.I.Sh.</th>
               <th>Fani</th>
-              {hasDeclared && <th>Excel soati</th>}
+              {hasDeclared && <th>{declaredLabel}</th>}
               {hasJadval && <th>Jadvalda</th>}
               {showDiff && <th>Farq</th>}
               {hasJadval && usedDays.map((d) => <th key={d}>{DAY_SHORT[d] || d}</th>)}
@@ -799,7 +922,7 @@ export function TeacherHoursTable({ teachers, jadval, title = "👨‍🏫 O'qit
                   <td>
                     <b>{t.name}</b>
                     {showDiff && !t.inExcel && (
-                      <div style={{ fontSize: 11, color: "#b45309" }}>⚠️ Excel ro'yxatida yo'q</div>
+                      <div style={{ fontSize: 11, color: "#b45309" }}>⚠️ Ro'yxatda yo'q</div>
                     )}
                   </td>
                   <td>{t.subject || "—"}</td>
@@ -836,7 +959,8 @@ export function TeacherHoursTable({ teachers, jadval, title = "👨‍🏫 O'qit
 //    2-varaq: Sinf-fan soatlari (setka matritsasi, jamilar bilan)
 //    3-varaq: O'qituvchi haftalik soatlari (Excel vs jadval, farq)
 // =====================================================================
-export function exportSchoolExcel(schoolName, data) {
+export function exportSchoolExcel(schoolName, data, opts = {}) {
+  const declaredLabel = opts.declaredLabel || "Excel soati";
   const wb = XLSX.utils.book_new();
   let sheets = 0;
 
@@ -878,7 +1002,7 @@ export function exportSchoolExcel(schoolName, data) {
   const { list, usedDays } = computeTeacherHours(data?.teachers, data?.jadval);
   if (list.length) {
     const ws = XLSX.utils.aoa_to_sheet([
-      ["№", "F.I.Sh.", "Fani", "Excel soati", "Jadvaldagi soati", "Farq",
+      ["№", "F.I.Sh.", "Fani", declaredLabel, "Jadvaldagi soati", "Farq",
         ...usedDays, "Sinflar"],
       ...list.map((t, i) => [
         i + 1, t.name, t.subject || "", t.declared || "", t.actual || "",
