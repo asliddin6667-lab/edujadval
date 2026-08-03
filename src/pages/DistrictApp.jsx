@@ -5,7 +5,10 @@ import {
   fetchAuditLog, logAction, adminResetPassword,
 } from "../services/districtService";
 import { fetchExcelStore } from "../services/districtExcelService";
-import { ExcelDataPage, ReportsPage, SetkaMatrix, JadvalViewer, TeacherHoursTable } from "./districtExcel";
+import {
+  ExcelDataPage, ReportsPage, SetkaMatrix, JadvalViewer,
+  TeacherHoursTable, exportSchoolExcel,
+} from "./districtExcel";
 import "./district.css";
 
 // =====================================================================
@@ -420,7 +423,7 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
             />
           </div>
         ) : selectedSchool ? (
-          <SchoolDetail school={selectedSchool} onBack={() => setSelectedSchool(null)} />
+          <SchoolDetail school={selectedSchool} onBack={() => setSelectedSchool(null)} addToast={addToast} />
         ) : (
           <>
             {page === "dashboard" && (
@@ -742,7 +745,7 @@ function SchoolsPage({ loading, schools, onOpenSchool, currentUser, addToast }) 
 //       district_excel_data): dars jadvali, sinf-fan soatlari (setka)
 //       va o'qituvchi haftalik soatlari
 // =====================================================================
-function SchoolDetail({ school, onBack }) {
+function SchoolDetail({ school, onBack, addToast }) {
   const [tab, setTab] = useState("teachers");
   const [excel, setExcel] = useState(null);       // { teachers, setka, jadval }
   const [excelLoading, setExcelLoading] = useState(true);
@@ -771,6 +774,42 @@ function SchoolDetail({ school, onBack }) {
   const jadvalRows = excel?.jadval?.rows?.length || 0;
   const setkaRows = excel?.setka?.rows?.length || 0;
   const excelTeacherRows = excel?.teachers?.rows?.length || 0;
+  const hasExcelData = jadvalRows > 0 || setkaRows > 0 || excelTeacherRows > 0;
+
+  // Maktab statistikasi — Excel ma'lumotlaridan hisoblanadi
+  const stats = useMemo(() => {
+    const jRows = excel?.jadval?.rows || [];
+    const jClasses = new Set();
+    const jTeachers = new Set();
+    const jRooms = new Set();
+    for (const r of jRows) {
+      if (r.klass) jClasses.add(r.klass);
+      if (r.teacher) jTeachers.add(String(r.teacher).trim().toLowerCase());
+      if (r.room) jRooms.add(r.room);
+    }
+    let setkaHours = 0;
+    if (excel?.setka?.rows) {
+      for (const r of excel.setka.rows) {
+        for (const c of excel.setka.classes || []) setkaHours += r.hours[c] || 0;
+      }
+    }
+    return {
+      lessons: jRows.length,
+      classes: jClasses.size || (excel?.setka?.classes?.length || 0),
+      teachers: jTeachers.size || excelTeacherRows,
+      rooms: jRooms.size,
+      setkaHours,
+    };
+  }, [excel, excelTeacherRows]);
+
+  function handleExport() {
+    const ok = exportSchoolExcel(school.schoolName, excel);
+    if (addToast) {
+      addToast(ok
+        ? "Maktab hisoboti Excel'ga yuklandi ✓"
+        : "Eksport uchun ma'lumot yo'q — avval Excel fayllarni yuklang", ok ? "success" : "warning");
+    }
+  }
 
   const TABS = [
     { id: "teachers", label: `👨‍🏫 O'qituvchilar (${teachers.length})` },
@@ -815,16 +854,22 @@ function SchoolDetail({ school, onBack }) {
               </div>
             )}
           </div>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <SubBadge school={school} />
-            <span className="da-badge" style={{ background: "rgba(37,99,235,.1)", color: "#2563eb" }}>
-              📚 {school.lessonsCount} dars
-            </span>
             {jadvalRows > 0 && (
               <span className="da-badge" style={{ background: "#10b9811c", color: "#059669" }}>
                 📅 Jadval yuklangan
               </span>
             )}
+            <button
+              type="button"
+              className="da-btn da-btn--primary da-btn--sm"
+              title="Jadval, setka va o'qituvchi soatlarini bitta Excel faylga yuklab olish"
+              disabled={excelLoading || !hasExcelData}
+              onClick={handleExport}
+            >
+              📤 Excel hisobot
+            </button>
           </div>
         </div>
         <div style={{
@@ -835,6 +880,31 @@ function SchoolDetail({ school, onBack }) {
           🔒 Faqat ko'rish rejimi — maktab ma'lumotlarini o'zgartirib bo'lmaydi.
         </div>
       </div>
+
+      {/* 📊 Maktab statistikasi */}
+      {excelLoading ? (
+        <div className="da-kpis">
+          {[0, 1, 2, 3, 4].map((i) => <div key={i} className="da-skel" style={{ height: 82 }} />)}
+        </div>
+      ) : hasExcelData ? (
+        <div className="da-kpis">
+          {[
+            { icon: "📚", label: "Haftalik darslar (jadval)", value: stats.lessons,    bg: "rgba(168,85,247,.13)" },
+            { icon: "🎓", label: "Sinflar",                    value: stats.classes,   bg: "rgba(14,165,233,.13)" },
+            { icon: "👨‍🏫", label: "O'qituvchilar",             value: stats.teachers,  bg: "rgba(99,102,241,.13)" },
+            { icon: "🚪", label: "Xonalar (jadvalda)",         value: stats.rooms || "—", bg: "rgba(37,99,235,.13)" },
+            { icon: "🕐", label: "Setka jami soat/hafta",      value: stats.setkaHours || "—", bg: "rgba(16,185,129,.13)" },
+          ].map((k, i) => (
+            <div key={i} className="da-kpi" style={{ animationDelay: `${i * 45}ms` }}>
+              <div className="da-kpi__icon" style={{ background: k.bg }}>{k.icon}</div>
+              <div>
+                <div className="da-kpi__value">{k.value}</div>
+                <div className="da-kpi__label">{k.label}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="da-card">
         <div className="da-tabs">
