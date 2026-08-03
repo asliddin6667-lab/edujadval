@@ -252,6 +252,8 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
   }
 
   function changeLevelGroupCount(subjectId, count) {
+    // Bo'sh qiymat (foydalanuvchi hali yozmoqda) — hech narsa qilmaymiz
+    if (String(count ?? "").trim() === "") return;
     const a = getAssignment(subjectId);
     const shared = getSharedLevelConfig(subjectId, a);
     const nextGroups = makeLevelGroups(count, shared.levelGroups || a.levelGroups);
@@ -563,7 +565,15 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
                             </div>
                           </div>
                           <div className="cs-col-hours">
-                            <input className="form-control" type="number" min="1" max="20" disabled={!checked} value={a.weeklyHours || s.weeklyHours || 1} onChange={e => updateAssignment(s.id, { weeklyHours: Number(e.target.value || 1) })} />
+                            <input className="form-control" type="number" min="1" max="20" disabled={!checked}
+                              value={a.weeklyHours ?? s.weeklyHours ?? 1}
+                              onChange={e => updateAssignment(s.id, { weeklyHours: e.target.value })}
+                              onBlur={e => {
+                                const v = e.target.value;
+                                if (v === "") { updateAssignment(s.id, { weeklyHours: s.weeklyHours || 1 }); return; }
+                                const n = Math.max(1, Math.min(20, Number(v) || 1));
+                                updateAssignment(s.id, { weeklyHours: n });
+                              }} />
                           </div>
                           <div className="cs-col-teacher">
                             <select className="form-control" disabled={!checked || a.levelGroupEnabled} value={a.teacherId || ""} onChange={e => updateAssignment(s.id, { teacherId: e.target.value })}>
@@ -696,7 +706,11 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
                                   </div>
                                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                     <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Guruhlar soni</span>
-                                    <input className="form-control" style={{ width: 90 }} type="number" min="1" max="12" value={levelGroups.length} onChange={e => changeLevelGroupCount(s.id, e.target.value)} />
+                                    <input className="form-control" style={{ width: 90 }} type="number" min="1" max="12"
+                                      key={`lgc-${s.id}-${levelGroups.length}`}
+                                      defaultValue={levelGroups.length}
+                                      onBlur={e => changeLevelGroupCount(s.id, e.target.value)}
+                                      onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }} />
                                   </div>
                                 </div>
                                 <input className="form-control" style={{ marginBottom: 10 }} placeholder="Guruh kaliti, masalan: 5-sinf Ingliz tili" value={a.levelGroupKey || ""} onChange={e => updateAssignment(s.id, { levelGroupKey: e.target.value })} onBlur={() => normalizeAllSharedLevelGroups(false)} />
@@ -771,7 +785,15 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
                                   </div>
                                   <div>
                                     <label className="form-label">Nechta soat navbatlanadi?</label>
-                                    <input className="form-control" type="number" min="1" max={Number(a.weeklyHours || 1)} value={a.weekAltHours || 1} onChange={e => updateAssignment(s.id, { weekAltHours: Math.max(1, Math.min(Number(a.weeklyHours || 1), Number(e.target.value || 1))) })} />
+                                    <input className="form-control" type="number" min="1" max={Number(a.weeklyHours || 1)}
+                                      value={a.weekAltHours ?? 1}
+                                      onChange={e => updateAssignment(s.id, { weekAltHours: e.target.value })}
+                                      onBlur={e => {
+                                        const v = e.target.value;
+                                        const maxV = Math.max(1, Number(a.weeklyHours || 1));
+                                        if (v === "") { updateAssignment(s.id, { weekAltHours: 1 }); return; }
+                                        updateAssignment(s.id, { weekAltHours: Math.max(1, Math.min(maxV, Number(v) || 1)) });
+                                      }} />
                                   </div>
                                 </div>
                                 {a.weekAltSubjectId && a.weekAltTeacherId && (
@@ -831,7 +853,13 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
               </select>
 
               <label className="form-label" style={{ marginTop: 12, display: "block" }}>Haftalik soat</label>
-              <input type="number" min="1" className="form-control" style={{ maxWidth: 120 }} value={poolForm.weeklyHours} onChange={(e) => setPoolForm({ ...poolForm, weeklyHours: e.target.value })} />
+              <input type="number" min="1" className="form-control" style={{ maxWidth: 120 }} value={poolForm.weeklyHours}
+                onChange={(e) => setPoolForm({ ...poolForm, weeklyHours: e.target.value })}
+                onBlur={(e) => {
+                  const v = e.target.value;
+                  if (v === "") return; // bo'sh qolsa yaratishda 1 bo'ladi
+                  setPoolForm((p) => ({ ...p, weeklyHours: Math.max(1, Number(v) || 1) }));
+                }} />
 
               <label className="form-label" style={{ marginTop: 12, display: "block" }}>Qaysi sinflar birlashadi? ({poolForm.classIds.length} tanlandi)</label>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 130, overflowY: "auto", padding: 6, border: "1px solid var(--card-border,#e5e7eb)", borderRadius: 10 }}>

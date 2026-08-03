@@ -65,7 +65,9 @@ export default function TeachersPage({ teachers, setTeachers, subjects, toast })
       toast("Kamida 1 ta fan tanlang", "warning");
       return;
     }
-    const data = { ...form, subjectId: form.subjectIds[0] || "" }; // eski ma'lumotlar bilan moslik uchun
+    // Saqlashda soatni songa aylantiramiz (yozish paytida bo'sh qolishi mumkin)
+    const maxWeeklyHours = Math.max(1, Math.min(40, parseInt(form.maxWeeklyHours, 10) || 18));
+    const data = { ...form, maxWeeklyHours, subjectId: form.subjectIds[0] || "" }; // eski ma'lumotlar bilan moslik uchun
     if (editItem) {
       setTeachers(teachers.map(t => t.id === editItem.id ? { ...t, ...data } : t));
       toast("O'qituvchi yangilandi ✓", "success");
@@ -209,7 +211,12 @@ export default function TeachersPage({ teachers, setTeachers, subjects, toast })
                 <div className="form-group">
                   <label className="form-label">Maks. haftalik soat</label>
                   <input className="form-control" type="number" min="1" max="40" value={form.maxWeeklyHours}
-                    onChange={e => setForm({ ...form, maxWeeklyHours: parseInt(e.target.value) || 1 })} />
+                    onChange={e => setForm({ ...form, maxWeeklyHours: e.target.value })}
+                    onBlur={e => {
+                      const v = e.target.value;
+                      if (v === "") return; // bo'sh qolsa saqlashda 18 bo'ladi
+                      setForm(f => ({ ...f, maxWeeklyHours: Math.max(1, Math.min(40, parseInt(v, 10) || 18)) }));
+                    }} />
                 </div>
               </div>
               <div className="form-group">
