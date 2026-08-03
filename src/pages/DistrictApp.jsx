@@ -4,6 +4,7 @@ import {
   reviewSubmission, sendNotification, fetchSentNotifications,
   fetchAuditLog, logAction, adminResetPassword,
 } from "../services/districtService";
+import { ExcelDataPage, ReportsPage } from "./districtExcel";
 import "./district.css";
 
 // =====================================================================
@@ -21,6 +22,7 @@ const NAV = [
   { id: "review",        icon: "⏳", label: "Tekshiruvdagi jadvallar" },
   { id: "approved",      icon: "✅", label: "Tasdiqlangan jadvallar" },
   { id: "reports",       icon: "📈", label: "Hisobotlar" },
+  { id: "excel",         icon: "📥", label: "Excel ma'lumotlar" },
   { id: "notifications", icon: "🔔", label: "Bildirishnomalar" },
   { id: "audit",         icon: "🧾", label: "Audit log" },
   { id: "profile",       icon: "👤", label: "Profil" },
@@ -340,7 +342,7 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
             </button>
           ))}
           <div className="da-nav__section">NAZORAT</div>
-          {NAV.slice(1, 5).map((item) => (
+          {NAV.slice(1, 6).map((item) => (
             <button
               key={item.id}
               type="button"
@@ -355,7 +357,7 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
             </button>
           ))}
           <div className="da-nav__section">TIZIM</div>
-          {NAV.slice(5).map((item) => (
+          {NAV.slice(6).map((item) => (
             <button
               key={item.id}
               type="button"
@@ -452,15 +454,8 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
                 mode="approved"
               />
             )}
-            {page === "reports" && (
-              <div className="da-card">
-                <Empty
-                  icon="📈"
-                  title="Hisobotlar tez orada"
-                  text="Maktablar, o'qituvchilar yuklamasi va fanlar bo'yicha batafsil hisobotlar hamda Excel/PDF eksport keyingi bosqichda qo'shiladi."
-                />
-              </div>
-            )}
+            {page === "reports" && <ReportsPage schools={schools} />}
+            {page === "excel" && <ExcelDataPage schools={schools} addToast={addToast} districtId={currentUser.districtId} />}
             {page === "notifications" && (
               <NotificationsPage schools={schools} currentUser={currentUser} addToast={addToast} />
             )}

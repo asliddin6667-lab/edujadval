@@ -1,0 +1,115 @@
+/* =====================================================================
+   TUMAN ADMIN — Excel ma'lumotlar va hisobotlar qo'shimcha stillari
+   Prefiks: dax-  (district.css dagi da- klasslar bilan to'qnashmaydi)
+   ===================================================================== */
+
+.dax-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.dax-card {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dax-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.dax-card__icon {
+  font-size: 26px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.dax-card__title {
+  font-size: 14.5px;
+  font-weight: 800;
+}
+
+.dax-card__desc {
+  font-size: 12px;
+  color: var(--da-text-2, #64748b);
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+.dax-status {
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: rgba(100, 116, 139, 0.1);
+  color: var(--da-text-2, #64748b);
+}
+
+.dax-status--ok {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+}
+
+.dax-status__file {
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+
+.dax-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: auto;
+}
+
+.dax-filelabel {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* --- Matritsa jadvali (soat setkasi / jadval) --- */
+.dax-matrix th,
+.dax-matrix td {
+  white-space: nowrap;
+}
+
+.dax-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--da-card, #fff);
+}
+
+.dax-matrix thead .dax-sticky {
+  z-index: 2;
+}
+
+.dax-total-row td {
+  border-top: 2px solid var(--da-border, #e2e8f0);
+}
+
+.dax-teacher {
+  font-size: 10.5px;
+  color: var(--da-text-2, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+@media (max-width: 600px) {
+  .dax-grid {
+    grid-template-columns: 1fr;
+  }
+}

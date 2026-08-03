@@ -1,0 +1,851 @@
+import { useState, useEffect, useMemo } from "react";
+import * as XLSX from "xlsx";
+import {
+  fetchExcelStore, upsertExcelData, deleteExcelData,
+} from "../services/districtExcelService";
+import "./districtExcel.css";
+
+// =====================================================================
+//  TUMAN ADMIN — EXCEL MA'LUMOTLAR va HISOBOTLAR
+//
+//  Har bir maktab uchun 3 xil Excel yuklanadi:
+//    1. Ustozlar ro'yxati        (teachers)
+//    2. Dars soat setkasi        (setka)  — fan × sinf matritsa
+//    3. Dars jadvali             (jadval) — uzun format
+//
+//  Ma'lumotlar Supabase'da saqlanadi (district_excel_data jadvali) —
+//  istalgan qurilmadan ko'rinadi. RLS: tuman admini faqat o'z tumanini
+//  ko'radi. Eski localStorage ma'lumotlari bir marta serverga
+//  ko'chirilishi mumkin ("📦 Serverga ko'chirish" tugmasi).
+// =====================================================================
+
+const LS_KEY = "edu-tuman-excel-data"; // eski (legacy) brauzer xotirasi
+
+const DAYS = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba"];
+
+const TYPES = {
+  teachers: {
+    icon: "👨‍🏫",
+    title: "Ustozlar ro'yxati",
+    desc: "F.I.Sh., fani va haftalik dars soati",
+    file: "ustozlar_shablon.xlsx",
+  },
+  setka: {
+    icon: "🕐",
+    title: "Dars soat setkasi",
+    desc: "Fanlar bo'yicha sinflarga ajratilgan haftalik soatlar",
+    file: "dars_soat_setkasi_shablon.xlsx",
+  },
+  jadval: {
+    icon: "📅",
+    title: "Dars jadvali",
+    desc: "Sinf, kun, dars raqami, fan va o'qituvchi",
+    file: "dars_jadvali_shablon.xlsx",
+  },
+};
+
+// ---------------------------------------------------------------------
+//  Eski localStorage ma'lumotlari (bir martalik migratsiya uchun)
+// ---------------------------------------------------------------------
+function loadLegacyStore() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    return obj && typeof obj === "object" ? obj : {};
+  } catch {
+    return {};
+  }
+}
+
+function legacyCount(legacy) {
+  let n = 0;
+  for (const sid of Object.keys(legacy)) {
+    for (const type of Object.keys(TYPES)) {
+      if (legacy[sid]?.[type]?.rows?.length) n++;
+    }
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------------
+//  SHABLON YUKLAB OLISH
+// ---------------------------------------------------------------------
+function downloadTemplate(type) {
+  const wb = XLSX.utils.book_new();
+  let aoa, cols;
+
+  if (type === "teachers") {
+    aoa = [
+      ["№", "F.I.Sh.", "Fani", "Haftalik dars soati"],
+      [1, "Aliyev Vali G'aniyevich", "Matematika", 24],
+      [2, "Karimova Nodira Salimovna", "Ona tili", 20],
+      [3, "Rahimov Sardor Bekovich", "Fizika", 18],
+    ];
+    cols = [{ wch: 5 }, { wch: 32 }, { wch: 20 }, { wch: 18 }];
+  } else if (type === "setka") {
+    aoa = [
+      ["Fan", "1-A", "1-B", "5-A", "5-B", "9-A"],
+      ["Matematika", 4, 4, 5, 5, 5],
+      ["Ona tili", 6, 6, 4, 4, 3],
+      ["Ingliz tili", 2, 2, 3, 3, 3],
+      ["Fizika", "", "", "", "", 3],
+    ];
+    cols = [{ wch: 22 }, { wch: 7 }, { wch: 7 }, { wch: 7 }, { wch: 7 }, { wch: 7 }];
+  } else {
+    aoa = [
+      ["Sinf", "Kun", "Dars №", "Fan", "O'qituvchi"],
+      ["5-A", "Dushanba", 1, "Matematika", "Aliyev Vali G'aniyevich"],
+      ["5-A", "Dushanba", 2, "Ona tili", "Karimova Nodira Salimovna"],
+      ["5-A", "Seshanba", 1, "Fizika", "Rahimov Sardor Bekovich"],
+    ];
+    cols = [{ wch: 8 }, { wch: 12 }, { wch: 8 }, { wch: 20 }, { wch: 32 }];
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = cols;
+  XLSX.utils.book_append_sheet(wb, ws, "Shablon");
+  XLSX.writeFile(wb, TYPES[type].file);
+}
+
+// ---------------------------------------------------------------------
+//  PARSERLAR — har biri { rows, classes?, errors } qaytaradi
+// ---------------------------------------------------------------------
+function cellStr(v) {
+  return v === null || v === undefined ? "" : String(v).trim();
+}
+function cellNum(v) {
+  if (v === null || v === undefined || v === "") return 0;
+  const n = Number(String(v).replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function parseTeachers(aoa) {
+  const rows = [];
+  const errors = [];
+  for (let i = 0; i < aoa.length; i++) {
+    const r = aoa[i] || [];
+    const name = cellStr(r[1]);
+    if (!name) continue;
+    // Sarlavha qatorini tashlab ketamiz
+    if (/f\.?\s*i\.?\s*sh/i.test(name)) continue;
+    rows.push({ name, subject: cellStr(r[2]), hours: cellNum(r[3]) });
+  }
+  if (rows.length === 0) errors.push("Ustozlar topilmadi — 2-ustunda F.I.Sh. bo'lishi kerak");
+  return { rows, errors };
+}
+
+function parseSetka(aoa) {
+  const errors = [];
+  if (!aoa.length) return { rows: [], classes: [], errors: ["Fayl bo'sh"] };
+
+  // Sarlavha qatori: birinchi katak — "Fan", qolganlari — sinf nomlari
+  const header = aoa[0] || [];
+  const classes = [];
+  const classCols = []; // ustun indekslari
+  for (let c = 1; c < header.length; c++) {
+    const cls = cellStr(header[c]);
+    if (cls) {
+      classes.push(cls);
+      classCols.push(c);
+    }
+  }
+  if (classes.length === 0) {
+    errors.push("Sinf ustunlari topilmadi — 1-qatorda \"Fan\" dan keyin sinf nomlari bo'lishi kerak (1-A, 1-B, ...)");
+    return { rows: [], classes: [], errors };
+  }
+
+  const rows = [];
+  for (let i = 1; i < aoa.length; i++) {
+    const r = aoa[i] || [];
+    const subject = cellStr(r[0]);
+    if (!subject) continue;
+    const hours = {};
+    let any = false;
+    for (let k = 0; k < classCols.length; k++) {
+      const h = cellNum(r[classCols[k]]);
+      if (h > 0) {
+        hours[classes[k]] = h;
+        any = true;
+      }
+    }
+    if (any) rows.push({ subject, hours });
+  }
+  if (rows.length === 0) errors.push("Fan qatorlari topilmadi yoki barcha soatlar bo'sh");
+  return { rows, classes, errors };
+}
+
+function normDay(v) {
+  const s = cellStr(v).toLowerCase();
+  for (const d of DAYS) {
+    if (s.startsWith(d.slice(0, 4).toLowerCase())) return d;
+  }
+  return cellStr(v);
+}
+
+function parseJadval(aoa) {
+  const rows = [];
+  const errors = [];
+  for (let i = 0; i < aoa.length; i++) {
+    const r = aoa[i] || [];
+    const klass = cellStr(r[0]);
+    const subject = cellStr(r[3]);
+    if (!klass || !subject) continue;
+    if (/^sinf$/i.test(klass)) continue; // sarlavha
+    rows.push({
+      klass,
+      day: normDay(r[1]),
+      no: cellNum(r[2]),
+      subject,
+      teacher: cellStr(r[4]),
+    });
+  }
+  if (rows.length === 0) errors.push("Dars qatorlari topilmadi — Sinf va Fan ustunlari to'ldirilishi kerak");
+  return { rows, errors };
+}
+
+const PARSERS = { teachers: parseTeachers, setka: parseSetka, jadval: parseJadval };
+
+function readWorkbookFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        resolve(XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
+      } catch (e) {
+        reject(new Error("Excel faylni o'qib bo'lmadi — .xlsx formatda ekanini tekshiring"));
+      }
+    };
+    reader.onerror = () => reject(new Error("Faylni o'qishda xatolik"));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function fmtShort(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  return d.toLocaleDateString("uz-UZ", { day: "2-digit", month: "2-digit", year: "numeric" })
+    + " " + d.toLocaleTimeString("uz-UZ", { hour: "2-digit", minute: "2-digit" });
+}
+
+// =====================================================================
+//  EXCEL MA'LUMOTLAR SAHIFASI
+// =====================================================================
+export function ExcelDataPage({ schools, addToast, districtId }) {
+  const [schoolId, setSchoolId] = useState("");
+  const [store, setStore] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState(null); // "teachers" | "setka" | "jadval"
+  const [legacy, setLegacy] = useState(loadLegacyStore);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setStore(await fetchExcelStore());
+      } catch (e) {
+        addToast(e.message, "warning");
+      } finally {
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const school = schools.find((s) => s.id === schoolId) || null;
+  const data = (schoolId && store[schoolId]) || {};
+  const legacyN = useMemo(() => legacyCount(legacy), [legacy]);
+
+  async function handleUpload(type, file) {
+    if (!file || busy) return;
+    setBusy(true);
+    try {
+      const aoa = await readWorkbookFile(file);
+      const parsed = PARSERS[type](aoa);
+      if (parsed.errors.length && parsed.rows.length === 0) {
+        addToast(parsed.errors[0], "warning");
+        return;
+      }
+      await upsertExcelData({
+        schoolId,
+        districtId,
+        type,
+        fileName: file.name,
+        rows: parsed.rows,
+        classes: parsed.classes,
+      });
+      const next = { ...store };
+      next[schoolId] = { ...(next[schoolId] || {}) };
+      next[schoolId][type] = {
+        fileName: file.name,
+        uploadedAt: Date.now(),
+        rows: parsed.rows,
+        ...(parsed.classes ? { classes: parsed.classes } : {}),
+      };
+      setStore(next);
+      addToast(`${TYPES[type].title}: ${parsed.rows.length} ta qator serverga saqlandi ✓`);
+      if (parsed.errors.length) addToast(parsed.errors[0], "warning");
+    } catch (e) {
+      addToast(e.message, "warning");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete(type) {
+    if (busy) return;
+    if (!window.confirm(`${TYPES[type].title} ma'lumotini serverdan o'chirasizmi?`)) return;
+    setBusy(true);
+    try {
+      await deleteExcelData(schoolId, type);
+      const next = { ...store };
+      if (next[schoolId]) {
+        next[schoolId] = { ...next[schoolId] };
+        delete next[schoolId][type];
+      }
+      setStore(next);
+      if (preview === type) setPreview(null);
+      addToast("O'chirildi");
+    } catch (e) {
+      addToast(e.message, "warning");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Eski brauzer (localStorage) ma'lumotlarini serverga bir marta ko'chirish
+  async function migrateLegacy() {
+    if (busy || legacyN === 0) return;
+    if (!window.confirm(`Brauzerda saqlangan ${legacyN} ta eski yuklama serverga ko'chiriladi. Davom etasizmi?`)) return;
+    setBusy(true);
+    let ok = 0;
+    try {
+      const validIds = new Set(schools.map((s) => s.id));
+      for (const sid of Object.keys(legacy)) {
+        if (!validIds.has(sid)) continue; // ro'yxatda yo'q maktab — tashlab ketamiz
+        for (const type of Object.keys(TYPES)) {
+          const d = legacy[sid]?.[type];
+          if (!d?.rows?.length) continue;
+          await upsertExcelData({
+            schoolId: sid,
+            districtId,
+            type,
+            fileName: d.fileName || "localStorage",
+            rows: d.rows,
+            classes: d.classes,
+          });
+          ok++;
+        }
+      }
+      localStorage.removeItem(LS_KEY);
+      setLegacy({});
+      setStore(await fetchExcelStore());
+      addToast(`${ok} ta yuklama serverga ko'chirildi ✓`);
+    } catch (e) {
+      addToast(`${ok} ta ko'chirildi, so'ng xatolik: ${e.message}`, "warning");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) return <div className="da-skel" style={{ height: 380 }} />;
+
+  return (
+    <>
+      {legacyN > 0 && (
+        <div className="da-card" style={{ border: "1.5px solid rgba(245,158,11,.4)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 220, fontSize: 13, lineHeight: 1.55 }}>
+              📦 Shu brauzerda avvalgi versiyadan qolgan <b>{legacyN} ta</b> Excel yuklama topildi.
+              Ularni serverga ko'chirsangiz, boshqa qurilmalardan ham ko'rinadi.
+            </div>
+            <button type="button" className="da-btn da-btn--primary" disabled={busy} onClick={migrateLegacy}>
+              {busy ? "Ko'chirilmoqda..." : "📦 Serverga ko'chirish"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="da-card">
+        <div className="da-card__title">📥 Excel ma'lumotlar yuklash</div>
+        <div style={{ fontSize: 13, color: "var(--da-text-2)", marginBottom: 12, lineHeight: 1.6 }}>
+          Avval shablonni yuklab oling, to'ldiring, so'ng shu yerga yuklang.
+          Ma'lumotlar serverda saqlanadi va <b>Hisobotlar</b> bo'limida tuman kesimida jamlanadi.
+        </div>
+        <label className="da-label">Maktabni tanlang</label>
+        <select
+          className="da-select"
+          style={{ maxWidth: 440 }}
+          value={schoolId}
+          onChange={(e) => { setSchoolId(e.target.value); setPreview(null); }}
+        >
+          <option value="">— Maktab —</option>
+          {schools.map((s) => (
+            <option key={s.id} value={s.id}>{s.schoolName}</option>
+          ))}
+        </select>
+      </div>
+
+      {!school ? (
+        <div className="da-card">
+          <div className="da-empty">
+            <div className="da-empty__icon">🏫</div>
+            <div className="da-empty__title">Maktab tanlanmagan</div>
+            <div className="da-empty__text">Excel yuklash uchun yuqoridan maktabni tanlang.</div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="dax-grid">
+            {Object.keys(TYPES).map((type) => {
+              const t = TYPES[type];
+              const d = data[type];
+              return (
+                <div key={type} className="da-card dax-card">
+                  <div className="dax-card__head">
+                    <span className="dax-card__icon">{t.icon}</span>
+                    <div>
+                      <div className="dax-card__title">{t.title}</div>
+                      <div className="dax-card__desc">{t.desc}</div>
+                    </div>
+                  </div>
+
+                  {d ? (
+                    <div className="dax-status dax-status--ok">
+                      ✓ {d.rows.length} ta qator · {fmtShort(d.uploadedAt)}
+                      <div className="dax-status__file" title={d.fileName}>📄 {d.fileName}</div>
+                    </div>
+                  ) : (
+                    <div className="dax-status">⏳ Hali yuklanmagan</div>
+                  )}
+
+                  <div className="dax-actions">
+                    <button type="button" className="da-btn da-btn--ghost da-btn--sm" onClick={() => downloadTemplate(type)}>
+                      📥 Shablon
+                    </button>
+                    <label className="da-btn da-btn--primary da-btn--sm dax-filelabel">
+                      📤 {d ? "Qayta yuklash" : "Excel yuklash"}
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls"
+                        style={{ display: "none" }}
+                        onChange={(e) => { handleUpload(type, e.target.files[0]); e.target.value = ""; }}
+                      />
+                    </label>
+                    {d && (
+                      <>
+                        <button
+                          type="button"
+                          className="da-btn da-btn--ghost da-btn--sm"
+                          onClick={() => setPreview(preview === type ? null : type)}
+                        >
+                          👁 {preview === type ? "Yopish" : "Ko'rish"}
+                        </button>
+                        <button type="button" className="da-btn da-btn--warning da-btn--sm" onClick={() => handleDelete(type)}>
+                          🗑
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {preview === "teachers" && data.teachers && <TeachersPreview d={data.teachers} />}
+          {preview === "setka" && data.setka && <SetkaMatrix title="🕐 Dars soat setkasi" rows={data.setka.rows} classes={data.setka.classes} />}
+          {preview === "jadval" && data.jadval && <JadvalViewer d={data.jadval} />}
+        </>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------
+//  KO'RISH KOMPONENTLARI
+// ---------------------------------------------------------------------
+function TeachersPreview({ d }) {
+  const total = d.rows.reduce((a, r) => a + r.hours, 0);
+  return (
+    <div className="da-card">
+      <div className="da-card__title">👨‍🏫 Ustozlar ({d.rows.length} ta · jami {total} soat)</div>
+      <div className="da-tablewrap">
+        <table className="da-table">
+          <thead>
+            <tr><th>#</th><th>F.I.Sh.</th><th>Fani</th><th>Haftalik soati</th></tr>
+          </thead>
+          <tbody>
+            {d.rows.map((r, i) => (
+              <tr key={i}>
+                <td>{i + 1}</td>
+                <td><b>{r.name}</b></td>
+                <td>{r.subject || "—"}</td>
+                <td>{r.hours || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SetkaMatrix({ title, rows, classes, showTotals = true }) {
+  const colTotal = {};
+  let grand = 0;
+  for (const r of rows) {
+    for (const c of classes) {
+      const h = r.hours[c] || 0;
+      colTotal[c] = (colTotal[c] || 0) + h;
+      grand += h;
+    }
+  }
+  return (
+    <div className="da-card">
+      <div className="da-card__title">{title} · jami {grand} soat/hafta</div>
+      <div className="da-tablewrap">
+        <table className="da-table dax-matrix">
+          <thead>
+            <tr>
+              <th className="dax-sticky">Fan</th>
+              {classes.map((c) => <th key={c}>{c}</th>)}
+              {showTotals && <th>Jami</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const rowSum = classes.reduce((a, c) => a + (r.hours[c] || 0), 0);
+              return (
+                <tr key={i}>
+                  <td className="dax-sticky"><b>{r.subject}</b></td>
+                  {classes.map((c) => (
+                    <td key={c} style={{ textAlign: "center" }}>{r.hours[c] || ""}</td>
+                  ))}
+                  {showTotals && <td style={{ textAlign: "center" }}><b>{rowSum}</b></td>}
+                </tr>
+              );
+            })}
+            {showTotals && (
+              <tr className="dax-total-row">
+                <td className="dax-sticky"><b>Jami</b></td>
+                {classes.map((c) => (
+                  <td key={c} style={{ textAlign: "center" }}><b>{colTotal[c] || ""}</b></td>
+                ))}
+                <td style={{ textAlign: "center" }}><b>{grand}</b></td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function JadvalViewer({ d }) {
+  const classes = useMemo(
+    () => [...new Set(d.rows.map((r) => r.klass))],
+    [d]
+  );
+  const [klass, setKlass] = useState(classes[0] || "");
+
+  const grid = useMemo(() => {
+    const rows = d.rows.filter((r) => r.klass === klass);
+    const days = DAYS.filter((day) => rows.some((r) => r.day === day));
+    const extraDays = [...new Set(rows.map((r) => r.day).filter((day) => !DAYS.includes(day)))];
+    const allDays = [...days, ...extraDays];
+    const maxNo = Math.max(1, ...rows.map((r) => r.no || 0));
+    const cell = {};
+    for (const r of rows) {
+      cell[`${r.day}|${r.no}`] = r;
+    }
+    return { allDays, maxNo, cell };
+  }, [d, klass]);
+
+  return (
+    <div className="da-card">
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <div className="da-card__title" style={{ margin: 0 }}>📅 Dars jadvali</div>
+        <select className="da-select" style={{ maxWidth: 160 }} value={klass} onChange={(e) => setKlass(e.target.value)}>
+          {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <span style={{ fontSize: 12.5, color: "var(--da-text-2)" }}>
+          Jami {d.rows.length} ta dars · {classes.length} ta sinf
+        </span>
+      </div>
+      <div className="da-tablewrap">
+        <table className="da-table dax-matrix">
+          <thead>
+            <tr>
+              <th className="dax-sticky">№</th>
+              {grid.allDays.map((day) => <th key={day}>{day}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: grid.maxNo }, (_, i) => i + 1).map((no) => (
+              <tr key={no}>
+                <td className="dax-sticky"><b>{no}</b></td>
+                {grid.allDays.map((day) => {
+                  const r = grid.cell[`${day}|${no}`];
+                  return (
+                    <td key={day}>
+                      {r ? (
+                        <>
+                          <b>{r.subject}</b>
+                          {r.teacher && <div className="dax-teacher">{r.teacher}</div>}
+                        </>
+                      ) : ""}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
+//  HISOBOTLAR SAHIFASI
+// =====================================================================
+export function ReportsPage({ schools }) {
+  const [store, setStore] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [schoolId, setSchoolId] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setStore(await fetchExcelStore());
+      } catch (e) {
+        setLoadError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const agg = useMemo(() => {
+    let uploadedSchools = 0;
+    let totalHours = 0;
+    let totalTeachers = 0;
+    const classSet = new Set();
+    const bySubject = {}; // fan -> jami soat
+    const perSchool = [];
+
+    for (const s of schools) {
+      const d = store[s.id];
+      if (!d || (!d.teachers && !d.setka && !d.jadval)) continue;
+      uploadedSchools++;
+
+      let schoolHours = 0;
+      let schoolClasses = 0;
+      if (d.setka) {
+        schoolClasses = d.setka.classes.length;
+        for (const c of d.setka.classes) classSet.add(`${s.id}|${c}`);
+        for (const r of d.setka.rows) {
+          for (const c of d.setka.classes) {
+            const h = r.hours[c] || 0;
+            schoolHours += h;
+            if (h > 0) bySubject[r.subject] = (bySubject[r.subject] || 0) + h;
+          }
+        }
+      }
+      totalHours += schoolHours;
+      const tCount = d.teachers ? d.teachers.rows.length : 0;
+      totalTeachers += tCount;
+
+      perSchool.push({
+        id: s.id,
+        name: s.schoolName,
+        teachers: tCount,
+        classes: schoolClasses,
+        hours: schoolHours,
+        jadvalRows: d.jadval ? d.jadval.rows.length : 0,
+        updatedAt: Math.max(
+          d.teachers?.uploadedAt || 0,
+          d.setka?.uploadedAt || 0,
+          d.jadval?.uploadedAt || 0
+        ),
+      });
+    }
+
+    perSchool.sort((a, b) => b.hours - a.hours);
+    const subjectList = Object.entries(bySubject)
+      .map(([subject, hours]) => ({ subject, hours }))
+      .sort((a, b) => b.hours - a.hours);
+
+    return {
+      uploadedSchools,
+      totalHours,
+      totalTeachers,
+      totalClasses: classSet.size,
+      perSchool,
+      subjectList,
+    };
+  }, [schools, store]);
+
+  const selSchool = schools.find((s) => s.id === schoolId);
+  const selSetka = schoolId && store[schoolId]?.setka;
+
+  function exportReport() {
+    const wb = XLSX.utils.book_new();
+
+    const ws1 = XLSX.utils.aoa_to_sheet([
+      ["Maktab", "Ustozlar", "Sinflar", "Haftalik jami soat", "Jadval darslari"],
+      ...agg.perSchool.map((r) => [r.name, r.teachers, r.classes, r.hours, r.jadvalRows]),
+      [],
+      ["JAMI", agg.totalTeachers, agg.totalClasses, agg.totalHours, ""],
+    ]);
+    ws1["!cols"] = [{ wch: 34 }, { wch: 10 }, { wch: 9 }, { wch: 18 }, { wch: 15 }];
+    XLSX.utils.book_append_sheet(wb, ws1, "Maktablar");
+
+    const ws2 = XLSX.utils.aoa_to_sheet([
+      ["Fan", "Tuman bo'yicha jami haftalik soat"],
+      ...agg.subjectList.map((r) => [r.subject, r.hours]),
+    ]);
+    ws2["!cols"] = [{ wch: 26 }, { wch: 28 }];
+    XLSX.utils.book_append_sheet(wb, ws2, "Fanlar");
+
+    XLSX.writeFile(wb, "tuman_hisobot.xlsx");
+  }
+
+  if (loading) {
+    return (
+      <>
+        <div className="da-kpis">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="da-skel" style={{ height: 82 }} />)}
+        </div>
+        <div className="da-skel" style={{ height: 300 }} />
+      </>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="da-card">
+        <div className="da-empty">
+          <div className="da-empty__icon">⚠️</div>
+          <div className="da-empty__title">Ma'lumotlarni yuklab bo'lmadi</div>
+          <div className="da-empty__text">{loadError}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (agg.uploadedSchools === 0) {
+    return (
+      <div className="da-card">
+        <div className="da-empty">
+          <div className="da-empty__icon">📈</div>
+          <div className="da-empty__title">Hisobot uchun ma'lumot yo'q</div>
+          <div className="da-empty__text">
+            Avval "📥 Excel ma'lumotlar" bo'limida maktablar uchun dars soat setkasi va
+            ustozlar ro'yxatini yuklang — hisobotlar shu yerda avtomatik jamlanadi.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const KPIS = [
+    { icon: "🏫", label: "Ma'lumot yuklangan maktablar", value: agg.uploadedSchools, bg: "rgba(37,99,235,.13)" },
+    { icon: "📚", label: "Tuman jami haftalik soat", value: agg.totalHours, bg: "rgba(168,85,247,.13)" },
+    { icon: "👨‍🏫", label: "Jami ustozlar (Excel)", value: agg.totalTeachers, bg: "rgba(99,102,241,.13)" },
+    { icon: "🎓", label: "Jami sinflar (setka)", value: agg.totalClasses, bg: "rgba(14,165,233,.13)" },
+  ];
+
+  const maxSubj = Math.max(1, ...agg.subjectList.map((r) => r.hours));
+
+  return (
+    <>
+      <div className="da-kpis">
+        {KPIS.map((k, i) => (
+          <div key={i} className="da-kpi" style={{ animationDelay: `${i * 45}ms` }}>
+            <div className="da-kpi__icon" style={{ background: k.bg }}>{k.icon}</div>
+            <div>
+              <div className="da-kpi__value">{k.value}</div>
+              <div className="da-kpi__label">{k.label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="da-card">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+          <div className="da-card__title" style={{ margin: 0 }}>🏫 Maktablar kesimida</div>
+          <button type="button" className="da-btn da-btn--primary da-btn--sm" style={{ marginLeft: "auto" }} onClick={exportReport}>
+            📤 Excel eksport
+          </button>
+        </div>
+        <div className="da-tablewrap">
+          <table className="da-table">
+            <thead>
+              <tr>
+                <th>Maktab</th>
+                <th>Ustozlar</th>
+                <th>Sinflar</th>
+                <th>Haftalik jami soat</th>
+                <th>Jadval darslari</th>
+                <th>Oxirgi yuklash</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agg.perSchool.map((r) => (
+                <tr key={r.id} className="da-row-click" onClick={() => setSchoolId(r.id)}>
+                  <td><b>{r.name}</b></td>
+                  <td>{r.teachers || "—"}</td>
+                  <td>{r.classes || "—"}</td>
+                  <td><b>{r.hours || "—"}</b></td>
+                  <td>{r.jadvalRows || "—"}</td>
+                  <td>{fmtShort(r.updatedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="da-card">
+        <div className="da-card__title">📚 Fanlar bo'yicha tuman jami soatlari</div>
+        {agg.subjectList.map((r) => (
+          <div key={r.subject} className="da-bar-row">
+            <div className="da-bar-name" title={r.subject}>{r.subject}</div>
+            <div className="da-bar-track">
+              <div className="da-bar-fill" style={{ width: `${(r.hours / maxSubj) * 100}%` }} />
+            </div>
+            <div className="da-bar-val">{r.hours}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="da-card">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+          <div className="da-card__title" style={{ margin: 0 }}>🎓 Sinflarga ajratilgan fan soatlari</div>
+          <select className="da-select" style={{ maxWidth: 340 }} value={schoolId} onChange={(e) => setSchoolId(e.target.value)}>
+            <option value="">— Maktabni tanlang —</option>
+            {agg.perSchool.filter((r) => r.classes > 0).map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+        {!selSetka ? (
+          <div className="da-empty">
+            <div className="da-empty__icon">🕐</div>
+            <div className="da-empty__title">Maktab tanlanmagan</div>
+            <div className="da-empty__text">Soat setkasi yuklangan maktabni tanlang — fan × sinf matritsasi shu yerda ko'rinadi.</div>
+          </div>
+        ) : (
+          <SetkaMatrix
+            title={`🕐 ${selSchool?.schoolName || ""}`}
+            rows={selSetka.rows}
+            classes={selSetka.classes}
+          />
+        )}
+      </div>
+    </>
+  );
+}
