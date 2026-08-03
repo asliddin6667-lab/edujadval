@@ -11,6 +11,9 @@
 //  Nomlar aynan bir xil bo'lgani uchun ro'yxatdan o'tgan maktablar
 //  o'z tumaniga xatosiz avtomatik bog'lanadi.
 //
+//  YANGI: resetSchoolPassword() — tuman admini / superadmin maktabga
+//  vaqtinchalik parol o'rnatadi (Edge Function: admin-reset-password).
+//
 //  XAVFSIZLIK: barcha cheklovlar Supabase RLS darajasida — bu fayl
 //  faqat so'rov yuboradi, ruxsatni server tekshiradi.
 // =====================================================================
@@ -301,4 +304,53 @@ export async function logAction({ user, action, targetType, targetId, details })
   } catch {
     /* log yozilmasa ham davom etamiz */
   }
+}
+
+// ---------------------------------------------------------------------
+//  PAROL TIKLASH (Edge Function: admin-reset-password)
+//  Tuman admini o'z tumanidagi maktabga, superadmin istalgan
+//  foydalanuvchiga (superadmindan tashqari) vaqtinchalik parol
+//  o'rnatadi. Maktab keyingi kirishida parolni majburiy almashtiradi.
+//  Ruxsat tekshiruvi to'liq serverda (Edge Function) bajariladi.
+// ---------------------------------------------------------------------
+
+// Vaqtinchalik parol generatori: "EDU-" + 8 belgi.
+// Adashtiruvchi belgilar yo'q (0/O, 1/l/I ishlatilmaydi).
+export function generateTempPassword() {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let out = "";
+  const buf = new Uint32Array(8);
+  crypto.getRandomValues(buf);
+  for (let i = 0; i < 8; i++) {
+    out += chars[buf[i] % chars.length];
+  }
+  return "EDU-" + out;
+}
+
+// Maktab foydalanuvchisiga vaqtinchalik parol o'rnatish.
+// Muvaffaqiyatda { ok: true, warning? } qaytaradi, xatoda Error tashlaydi.
+export async function resetSchoolPassword(targetUserId, newPassword) {
+  if (!targetUserId) throw new Error("Foydalanuvchi tanlanmagan");
+  if (!newPassword || newPassword.length < 8) {
+    throw new Error("Vaqtinchalik parol kamida 8 belgidan iborat bo'lishi kerak");
+  }
+
+  const { data, error } = await supabase.functions.invoke(
+    "admin-reset-password",
+    { body: { target_user_id: targetUserId, new_password: newPassword } }
+  );
+
+  if (error) {
+    // Edge Function 4xx/5xx qaytarsa aniq xabarni chiqarib olamiz
+    let msg = error.message || "Parolni tiklashda noma'lum xatolik";
+    try {
+      const ctx = await error.context?.json?.();
+      if (ctx?.error) msg = ctx.error;
+    } catch {
+      /* jim */
+    }
+    throw new Error(msg);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data; // { ok: true } yoki { ok: true, warning: "..." }
 }

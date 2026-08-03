@@ -153,7 +153,12 @@ export default function ClassesPage({ classes, setClasses, toast }) {
               <div className="form-group">
                 <label className="form-label">Parallel soni</label>
                 <input className="form-control" type="number" min="1" max={CLASS_LETTERS.length} value={autoForm.count}
-                  onChange={e => setAutoForm({ ...autoForm, count: e.target.value })} />
+                  onChange={e => setAutoForm({ ...autoForm, count: e.target.value })}
+                  onBlur={e => {
+                    const v = e.target.value;
+                    if (v === "") return; // bo'sh qolsa yaratishda 1 bo'ladi
+                    setAutoForm(f => ({ ...f, count: Math.min(CLASS_LETTERS.length, Math.max(1, Number(v) || 1)) }));
+                  }} />
               </div>
               <div className="form-group">
                 <label className="form-label">O'quvchilar soni</label>
@@ -182,7 +187,12 @@ export default function ClassesPage({ classes, setClasses, toast }) {
                   <div key={grade}>
                     <label style={{ fontSize: 11, color: "var(--text-secondary)" }}>{grade}-sinf</label>
                     <input className="form-control" type="number" min="0" max={CLASS_LETTERS.length} value={allCounts[grade]}
-                      onChange={e => setAllCounts({ ...allCounts, [grade]: e.target.value })} />
+                      onChange={e => setAllCounts({ ...allCounts, [grade]: e.target.value })}
+                      onBlur={e => {
+                        const v = e.target.value;
+                        if (v === "") return; // bo'sh = 0 (bu sinf yaratilmaydi)
+                        setAllCounts(prev => ({ ...prev, [grade]: Math.min(CLASS_LETTERS.length, Math.max(0, Number(v) || 0)) }));
+                      }} />
                   </div>
                 ))}
               </div>
