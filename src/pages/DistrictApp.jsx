@@ -4,7 +4,8 @@ import {
   reviewSubmission, sendNotification, fetchSentNotifications,
   fetchAuditLog, logAction, adminResetPassword,
 } from "../services/districtService";
-import { ExcelDataPage, ReportsPage } from "./districtExcel";
+import { fetchExcelStore } from "../services/districtExcelService";
+import { ExcelDataPage, ReportsPage, SetkaMatrix, JadvalViewer, TeacherHoursTable } from "./districtExcel";
 import "./district.css";
 
 // =====================================================================
@@ -733,27 +734,68 @@ function SchoolsPage({ loading, schools, onOpenSchool, currentUser, addToast }) 
 
 // =====================================================================
 //  MAKTAB OYNASI (faqat ko'rish)
+//
+//  Ikki xil manba ko'rsatiladi:
+//    1. Maktab o'zi kiritgan ma'lumotlar (school.data — o'qituvchilar,
+//       sinflar, fanlar, xonalar)
+//    2. Tuman admini Excel orqali yuklagan ma'lumotlar (Supabase'dagi
+//       district_excel_data): dars jadvali, sinf-fan soatlari (setka)
+//       va o'qituvchi haftalik soatlari
 // =====================================================================
 function SchoolDetail({ school, onBack }) {
   const [tab, setTab] = useState("teachers");
+  const [excel, setExcel] = useState(null);       // { teachers, setka, jadval }
+  const [excelLoading, setExcelLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const store = await fetchExcelStore();
+        if (alive) setExcel(store[school.id] || {});
+      } catch {
+        if (alive) setExcel({});
+      } finally {
+        if (alive) setExcelLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [school.id]);
+
   const d = school.data || {};
   const teachers = Array.isArray(d.teachers) ? d.teachers : [];
   const classes = Array.isArray(d.classes) ? d.classes : [];
   const subjects = Array.isArray(d.subjects) ? d.subjects : [];
   const rooms = Array.isArray(d.rooms) ? d.rooms : [];
 
+  const jadvalRows = excel?.jadval?.rows?.length || 0;
+  const setkaRows = excel?.setka?.rows?.length || 0;
+  const excelTeacherRows = excel?.teachers?.rows?.length || 0;
+
   const TABS = [
     { id: "teachers", label: `👨‍🏫 O'qituvchilar (${teachers.length})` },
     { id: "classes",  label: `🎓 Sinflar (${classes.length})` },
     { id: "subjects", label: `📚 Fanlar (${subjects.length})` },
     { id: "rooms",    label: `🚪 Xonalar (${rooms.length})` },
-    { id: "schedule", label: "📅 Dars jadvali" },
+    { id: "jadval",   label: "📅 Dars jadvali" },
+    { id: "setka",    label: "🕐 Sinf-fan soatlari" },
+    { id: "hours",    label: "⏱ O'qituvchi soatlari" },
   ];
 
   function nameOf(x) {
     if (!x) return "—";
     if (typeof x === "string") return x;
     return x.name || x.fullName || x.title || "—";
+  }
+
+  function ExcelEmpty({ icon, title }) {
+    return (
+      <Empty
+        icon={icon}
+        title={title}
+        text={`Bu maktab uchun "📥 Excel ma'lumotlar" bo'limida tegishli faylni yuklang — shu yerda avtomatik ko'rinadi.`}
+      />
+    );
   }
 
   return (
@@ -778,6 +820,11 @@ function SchoolDetail({ school, onBack }) {
             <span className="da-badge" style={{ background: "rgba(37,99,235,.1)", color: "#2563eb" }}>
               📚 {school.lessonsCount} dars
             </span>
+            {jadvalRows > 0 && (
+              <span className="da-badge" style={{ background: "#10b9811c", color: "#059669" }}>
+                📅 Jadval yuklangan
+              </span>
+            )}
           </div>
         </div>
         <div style={{
@@ -871,12 +918,39 @@ function SchoolDetail({ school, onBack }) {
             )
         )}
 
-        {tab === "schedule" && (
-          <Empty
-            icon="📅"
-            title="Jadval ko'rinishi keyingi bosqichda"
-            text="Haqiqiy dars jadvali (rangli fanlar, konflikt belgilari, eksport) 4-bosqichda qo'shiladi — jadval tekshirish oqimi bilan birga."
-          />
+        {tab === "jadval" && (
+          excelLoading
+            ? <div className="da-skel" style={{ height: 240 }} />
+            : jadvalRows > 0
+              ? <JadvalViewer d={excel.jadval} />
+              : <ExcelEmpty icon="📅" title="Dars jadvali hali yuklanmagan" />
+        )}
+
+        {tab === "setka" && (
+          excelLoading
+            ? <div className="da-skel" style={{ height: 240 }} />
+            : setkaRows > 0
+              ? (
+                <SetkaMatrix
+                  title="🕐 Sinf-fan haftalik soatlari"
+                  rows={excel.setka.rows}
+                  classes={excel.setka.classes}
+                />
+              )
+              : <ExcelEmpty icon="🕐" title="Soat setkasi hali yuklanmagan" />
+        )}
+
+        {tab === "hours" && (
+          excelLoading
+            ? <div className="da-skel" style={{ height: 240 }} />
+            : (excelTeacherRows > 0 || jadvalRows > 0)
+              ? (
+                <TeacherHoursTable
+                  teachers={excel.teachers}
+                  jadval={excel.jadval}
+                />
+              )
+              : <ExcelEmpty icon="⏱" title="O'qituvchi soatlari uchun ma'lumot yo'q" />
         )}
       </div>
     </>

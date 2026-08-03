@@ -17,11 +17,15 @@ import "./districtExcel.css";
 //  istalgan qurilmadan ko'rinadi. RLS: tuman admini faqat o'z tumanini
 //  ko'radi. Eski localStorage ma'lumotlari bir marta serverga
 //  ko'chirilishi mumkin ("📦 Serverga ko'chirish" tugmasi).
+//
+//  SetkaMatrix, JadvalViewer va TeacherHoursTable eksport qilinadi —
+//  DistrictApp.jsx dagi SchoolDetail (maktab oynasi) ham ishlatadi.
 // =====================================================================
 
 const LS_KEY = "edu-tuman-excel-data"; // eski (legacy) brauzer xotirasi
 
 const DAYS = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba"];
+const DAY_SHORT = { Dushanba: "Du", Seshanba: "Se", Chorshanba: "Cho", Payshanba: "Pa", Juma: "Ju", Shanba: "Sha" };
 
 const TYPES = {
   teachers: {
@@ -491,7 +495,7 @@ function TeachersPreview({ d }) {
   );
 }
 
-function SetkaMatrix({ title, rows, classes, showTotals = true }) {
+export function SetkaMatrix({ title, rows, classes, showTotals = true }) {
   const colTotal = {};
   let grand = 0;
   for (const r of rows) {
@@ -542,7 +546,7 @@ function SetkaMatrix({ title, rows, classes, showTotals = true }) {
   );
 }
 
-function JadvalViewer({ d }) {
+export function JadvalViewer({ d }) {
   const classes = useMemo(
     () => [...new Set(d.rows.map((r) => r.klass))],
     [d]
@@ -600,6 +604,145 @@ function JadvalViewer({ d }) {
                 })}
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
+//  O'QITUVCHI HAFTALIK SOATLARI
+//
+//  Ikki manbani birlashtiradi:
+//    - teachers (Excel'da e'lon qilingan haftalik soat)
+//    - jadval   (jadvaldan hisoblangan haqiqiy soat, kunlar kesimida)
+//  Ism bo'yicha moslashtiradi (katta-kichik harf va ortiqcha
+//  bo'shliqlarga sezgir emas). Ikkalasi ham bo'lsa — farqni ko'rsatadi.
+// =====================================================================
+export function TeacherHoursTable({ teachers, jadval, title = "👨‍🏫 O'qituvchi haftalik soatlari" }) {
+  const hasDeclared = !!teachers?.rows?.length;
+  const hasJadval = !!jadval?.rows?.length;
+
+  const { list, usedDays } = useMemo(() => {
+    const norm = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const map = new Map();
+    const daySet = new Set();
+
+    if (teachers?.rows) {
+      for (const t of teachers.rows) {
+        const k = norm(t.name);
+        if (!k) continue;
+        map.set(k, {
+          name: t.name,
+          subject: t.subject || "",
+          declared: t.hours || 0,
+          actual: 0,
+          classes: new Set(),
+          days: {},
+          inExcel: true,
+        });
+      }
+    }
+
+    if (jadval?.rows) {
+      for (const r of jadval.rows) {
+        const k = norm(r.teacher);
+        if (!k) continue;
+        if (!map.has(k)) {
+          map.set(k, {
+            name: r.teacher, subject: "", declared: 0, actual: 0,
+            classes: new Set(), days: {}, inExcel: false,
+          });
+        }
+        const t = map.get(k);
+        t.actual++;
+        if (r.klass) t.classes.add(r.klass);
+        if (!t.subject && r.subject) t.subject = r.subject;
+        if (r.day) {
+          t.days[r.day] = (t.days[r.day] || 0) + 1;
+          daySet.add(r.day);
+        }
+      }
+    }
+
+    const list = [...map.values()]
+      .map((t) => ({ ...t, classes: [...t.classes] }))
+      .sort((a, b) => (b.actual - a.actual) || (b.declared - a.declared) || a.name.localeCompare(b.name));
+
+    const usedDays = [
+      ...DAYS.filter((d) => daySet.has(d)),
+      ...[...daySet].filter((d) => !DAYS.includes(d)),
+    ];
+
+    return { list, usedDays };
+  }, [teachers, jadval]);
+
+  if (list.length === 0) return null;
+
+  const totalDeclared = list.reduce((a, r) => a + r.declared, 0);
+  const totalActual = list.reduce((a, r) => a + r.actual, 0);
+  const showDiff = hasDeclared && hasJadval;
+
+  return (
+    <div className="da-card">
+      <div className="da-card__title">
+        {title} · {list.length} ta o'qituvchi
+        {hasDeclared && <> · Excel: {totalDeclared} soat</>}
+        {hasJadval && <> · Jadvalda: {totalActual} soat</>}
+      </div>
+      {showDiff && (
+        <div style={{ fontSize: 12.5, color: "var(--da-text-2)", marginBottom: 10, lineHeight: 1.55 }}>
+          "Farq" ustuni: jadvaldagi haqiqiy soat − Excel'da e'lon qilingan soat.
+          <b style={{ color: "#059669" }}> ✓</b> — mos,
+          <b style={{ color: "#b45309" }}> ±</b> — mos emas (tekshirish tavsiya etiladi).
+        </div>
+      )}
+      <div className="da-tablewrap">
+        <table className="da-table dax-matrix">
+          <thead>
+            <tr>
+              <th className="dax-sticky">#</th>
+              <th>F.I.Sh.</th>
+              <th>Fani</th>
+              {hasDeclared && <th>Excel soati</th>}
+              {hasJadval && <th>Jadvalda</th>}
+              {showDiff && <th>Farq</th>}
+              {hasJadval && usedDays.map((d) => <th key={d}>{DAY_SHORT[d] || d}</th>)}
+              {hasJadval && <th>Sinflar</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((t, i) => {
+              const diff = t.actual - t.declared;
+              return (
+                <tr key={i}>
+                  <td className="dax-sticky">{i + 1}</td>
+                  <td>
+                    <b>{t.name}</b>
+                    {showDiff && !t.inExcel && (
+                      <div style={{ fontSize: 11, color: "#b45309" }}>⚠️ Excel ro'yxatida yo'q</div>
+                    )}
+                  </td>
+                  <td>{t.subject || "—"}</td>
+                  {hasDeclared && <td style={{ textAlign: "center" }}>{t.declared || "—"}</td>}
+                  {hasJadval && <td style={{ textAlign: "center" }}><b>{t.actual || "—"}</b></td>}
+                  {showDiff && (
+                    <td style={{ textAlign: "center", fontWeight: 800, color: diff === 0 ? "#059669" : "#b45309" }}>
+                      {diff === 0 ? "✓" : (diff > 0 ? `+${diff}` : diff)}
+                    </td>
+                  )}
+                  {hasJadval && usedDays.map((d) => (
+                    <td key={d} style={{ textAlign: "center" }}>{t.days[d] || ""}</td>
+                  ))}
+                  {hasJadval && (
+                    <td style={{ fontSize: 12, maxWidth: 220, whiteSpace: "normal" }}>
+                      {t.classes.length ? t.classes.join(", ") : "—"}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -689,7 +832,8 @@ export function ReportsPage({ schools }) {
   }, [schools, store]);
 
   const selSchool = schools.find((s) => s.id === schoolId);
-  const selSetka = schoolId && store[schoolId]?.setka;
+  const selData = (schoolId && store[schoolId]) || null;
+  const selSetka = selData?.setka;
 
   function exportReport() {
     const wb = XLSX.utils.book_new();
@@ -824,26 +968,36 @@ export function ReportsPage({ schools }) {
 
       <div className="da-card">
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-          <div className="da-card__title" style={{ margin: 0 }}>🎓 Sinflarga ajratilgan fan soatlari</div>
+          <div className="da-card__title" style={{ margin: 0 }}>🎓 Maktab kesimida batafsil</div>
           <select className="da-select" style={{ maxWidth: 340 }} value={schoolId} onChange={(e) => setSchoolId(e.target.value)}>
             <option value="">— Maktabni tanlang —</option>
-            {agg.perSchool.filter((r) => r.classes > 0).map((r) => (
+            {agg.perSchool.map((r) => (
               <option key={r.id} value={r.id}>{r.name}</option>
             ))}
           </select>
         </div>
-        {!selSetka ? (
+        {!selData ? (
           <div className="da-empty">
             <div className="da-empty__icon">🕐</div>
             <div className="da-empty__title">Maktab tanlanmagan</div>
-            <div className="da-empty__text">Soat setkasi yuklangan maktabni tanlang — fan × sinf matritsasi shu yerda ko'rinadi.</div>
+            <div className="da-empty__text">Maktabni tanlang — sinf-fan soatlari, o'qituvchi haftalik soatlari va dars jadvali shu yerda ko'rinadi.</div>
           </div>
         ) : (
-          <SetkaMatrix
-            title={`🕐 ${selSchool?.schoolName || ""}`}
-            rows={selSetka.rows}
-            classes={selSetka.classes}
-          />
+          <>
+            {selSetka && (
+              <SetkaMatrix
+                title={`🕐 ${selSchool?.schoolName || ""} — sinf-fan soatlari`}
+                rows={selSetka.rows}
+                classes={selSetka.classes}
+              />
+            )}
+            <TeacherHoursTable
+              teachers={selData.teachers}
+              jadval={selData.jadval}
+              title={`👨‍🏫 ${selSchool?.schoolName || ""} — o'qituvchi soatlari`}
+            />
+            {selData.jadval?.rows?.length ? <JadvalViewer d={selData.jadval} /> : null}
+          </>
         )}
       </div>
     </>
