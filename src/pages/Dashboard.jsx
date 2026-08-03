@@ -11,7 +11,7 @@ function countLessons(schedule = {}) {
 }
 
 const MARQUEE_TEXT = [
-  "🎓 Edujadval.uz — maktablar uchun avtomatik dars jadvali platformasi",
+  "🎓 Smartjadval.uz — maktablar uchun avtomatik dars jadvali platformasi",
   "⚡ Bir necha soniyada 100% to'liq jadval tuzadi",
   "🧑‍🏫 O'qituvchi yuklamasi, dam kunlari va band vaqtlari hisobga olinadi",
   "🔁 Parallel darslar: bir ustoz bir vaqtda bir nechta sinfga",
@@ -370,13 +370,13 @@ export default function DashboardPage({
         <div>
           <h1 className="dash-title">Dashboard</h1>
           <div className="dash-sub">
-            Edujadval.uz — Avtomatik dars jadvali platformasi
+            Smartjadval.uz — Avtomatik dars jadvali platformasi
           </div>
         </div>
         <div className="dash-brand">
           <img
             src={`${import.meta.env.BASE_URL}logo.png`}
-            alt="Edujadval.uz"
+            alt="Smartjadval.uz"
             style={{ height: 192, width: "auto", objectFit: "contain", maxWidth: "100%" }}
             onError={(e) => { e.currentTarget.style.display = "none"; e.currentTarget.nextSibling.style.display = "block"; }}
           />
