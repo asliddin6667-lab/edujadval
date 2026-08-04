@@ -5,6 +5,7 @@ import "./styles/responsive.css";
 import Sidebar from "./components/Sidebar";
 import PaywallModal from "./components/PaywallModal";
 import AuthPage from "./pages/AuthPage";
+import Landing from "./pages/Landing";
 import SubscriptionPage from "./pages/Subscription";
 import DashboardPage from "./pages/Dashboard";
 import ClassesPage from "./pages/Classes";
@@ -41,6 +42,9 @@ export default function App() {
   // Parol tiklash havolasidan kelgan bo'lsa — hamma narsadan oldin
   // yangi parol o'rnatish ekrani ko'rsatiladi.
   const [recoveryMode, setRecoveryMode] = useState(() => isPasswordRecoveryUrl());
+
+  // Landing → Auth o'tish holati: null = landing, "login"/"register" = AuthPage
+  const [authView, setAuthView] = useState(null);
 
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
@@ -276,7 +280,23 @@ export default function App() {
   }
 
   if (!currentUser) {
-    return <AuthPage onAuth={setCurrentUser} />;
+    // Avval landing (marketing) sahifa ko'rsatiladi; "Kirish" yoki
+    // "Ro'yxatdan o'tish" bosilganda AuthPage ochiladi.
+    if (!authView) {
+      return (
+        <Landing
+          onLogin={() => setAuthView("login")}
+          onRegister={() => setAuthView("register")}
+        />
+      );
+    }
+    return (
+      <AuthPage
+        onAuth={setCurrentUser}
+        initialMode={authView}
+        onBack={() => setAuthView(null)}
+      />
+    );
   }
 
   // ——— MAJBURIY PAROL ALMASHTIRISH ———

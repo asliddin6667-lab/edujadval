@@ -326,7 +326,7 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
         <div className="da-sidebar__logocard">
           <img
             src={`${import.meta.env.BASE_URL}logo.png`}
-            alt="Edujadval.uz"
+            alt="Smartjadval.uz"
             onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
         </div>

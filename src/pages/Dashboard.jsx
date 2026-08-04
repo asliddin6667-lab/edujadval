@@ -10,17 +10,6 @@ function countLessons(schedule = {}) {
   return total;
 }
 
-const MARQUEE_TEXT = [
-  "🎓 Smartjadval.uz — maktablar uchun avtomatik dars jadvali platformasi",
-  "⚡ Bir necha soniyada 100% to'liq jadval tuzadi",
-  "🧑‍🏫 O'qituvchi yuklamasi, dam kunlari va band vaqtlari hisobga olinadi",
-  "🔁 Parallel darslar: bir ustoz bir vaqtda bir nechta sinfga",
-  "🧩 Daraja guruhlari, guruhlarga bo'lish va almashinuv darslari",
-  "🍽️ Obed va tanaffus vaqtlariga dars qo'yilmaydi",
-  "✏️ Qo'lda dars qo'shish va qulflash — qayta tuzganda buzilmaydi",
-  "📊 Excelga chiroyli, rangli jadval yuklab olish",
-  "📈 Sinf va o'qituvchilar bo'yicha to'liq tahlil",
-].join("     •     ") + "     •     ";
 
 export default function DashboardPage({
   classes = [],
@@ -29,6 +18,7 @@ export default function DashboardPage({
   rooms = [],
   timeslots = [],
   schedule = {},
+  classSubjects = {},
   setActivePage,
 }) {
   const go = (page) => { if (setActivePage) setActivePage(page); };
@@ -63,6 +53,18 @@ export default function DashboardPage({
     Object.values(schedule?.[day] || {}).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0)
   );
   const maxDay = Math.max(1, ...dayCounts);
+
+  // ——— Onboarding checklist: yangi maktab nimadan boshlashni ko'radi ———
+  const onboardSteps = [
+    { key: "classes", label: "Sinflarni kiriting", page: "classes", done: classes.length > 0 },
+    { key: "subjects", label: "Fanlarni qo'shing", page: "subjects", done: subjects.length > 0 },
+    { key: "teachers", label: "O'qituvchilarni kiriting", page: "teachers", done: teachers.length > 0 },
+    { key: "timeslots", label: "Dars vaqtlarini sozlang", page: "timeslots", done: timeslots.length > 0 },
+    { key: "classSubjects", label: "Sinf-fan soatlarini bog'lang", page: "classSubjects", done: Object.keys(classSubjects || {}).length > 0 },
+    { key: "schedule", label: "Jadvalni tuzing", page: "schedule", done: totalLessons > 0 },
+  ];
+  const doneCount = onboardSteps.filter((s) => s.done).length;
+  const onboardingDone = doneCount === onboardSteps.length;
 
   return (
     <div style={{ paddingBottom: 40 }}>
@@ -316,30 +318,80 @@ export default function DashboardPage({
           .dash-search { display: none; }
         }
 
-        .dash-marquee {
-          overflow: hidden;
-          white-space: nowrap;
-          background: linear-gradient(90deg, #6366f1, #8b5cf6, #ec4899);
+        .dash-onboard {
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
           color: #fff;
-          border-radius: 14px;
-          padding: 11px 0;
+          border-radius: 20px;
+          padding: 20px 24px;
           margin-bottom: 22px;
-          box-shadow: 0 10px 26px rgba(99, 102, 241, 0.28);
+          box-shadow: 0 14px 36px rgba(99, 102, 241, 0.30);
         }
-        .dash-marquee-track {
-          display: inline-block;
-          white-space: nowrap;
-          will-change: transform;
-          animation: dashMarquee 34s linear infinite;
-          font-weight: 600;
-          font-size: 14px;
+        .dash-onboard-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          margin-bottom: 16px;
         }
-        .dash-marquee:hover .dash-marquee-track { animation-play-state: paused; }
-        .dash-marquee-track > span { padding: 0 30px; }
-        @keyframes dashMarquee {
-          0% { transform: translateX(0); }
-          100% { transform: translateX(-50%); }
+        .dash-onboard-title { font-size: 17px; font-weight: 800; }
+        .dash-onboard-sub { font-size: 13px; opacity: .88; margin-top: 3px; }
+        .dash-onboard-pct { font-size: 26px; font-weight: 900; }
+        .dash-onboard-steps {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 10px;
         }
+        .dash-onboard-step {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          border: 1.5px solid rgba(255,255,255,.35);
+          background: rgba(255,255,255,.12);
+          color: #fff;
+          border-radius: 13px;
+          padding: 11px 14px;
+          font-family: inherit;
+          font-size: 13.5px;
+          font-weight: 700;
+          cursor: pointer;
+          text-align: left;
+          transition: background .15s, transform .15s;
+        }
+        .dash-onboard-step:hover { background: rgba(255,255,255,.22); transform: translateY(-1px); }
+        .dash-onboard-step.done {
+          background: rgba(255,255,255,.92);
+          color: #16a34a;
+          border-color: transparent;
+        }
+        .dash-onboard-check {
+          width: 24px; height: 24px; border-radius: 50%;
+          display: inline-flex; align-items: center; justify-content: center;
+          background: rgba(255,255,255,.25); font-size: 12.5px; font-weight: 800;
+          flex-shrink: 0;
+        }
+        .dash-onboard-step.done .dash-onboard-check { background: #dcfce7; color: #16a34a; }
+        .dash-onboard-label { line-height: 1.3; }
+        @media (max-width: 900px) {
+          .dash-onboard-steps { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 560px) {
+          .dash-onboard-steps { grid-template-columns: 1fr; }
+        }
+
+        /* ——— Tungi rejim moslamalari ——— */
+        body.dark-mode .dash-title { color: #e8edf5; }
+        body.dark-mode .dash-search {
+          background: #1a2030; border-color: #2a3350; color: #8a94a8;
+        }
+        body.dark-mode .quick-item {
+          background: linear-gradient(135deg, #1a2030, #232a4a);
+          color: #a5b4fc;
+        }
+        body.dark-mode .quick-item:hover {
+          background: linear-gradient(135deg, #232a4a, #2d3560);
+        }
+        body.dark-mode .mini-row { border-bottom-color: #232a3d; }
+        body.dark-mode .progress-line { background: #1a2030; }
 
         .load-chart { display: flex; gap: 12px; align-items: flex-end; margin-top: 10px; }
         .load-cell { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
@@ -380,16 +432,37 @@ export default function DashboardPage({
             style={{ height: 192, width: "auto", objectFit: "contain", maxWidth: "100%" }}
             onError={(e) => { e.currentTarget.style.display = "none"; e.currentTarget.nextSibling.style.display = "block"; }}
           />
-          <span style={{ display: "none", fontWeight: 800, fontSize: 22, color: "#4f46e5" }}>Edujadval<span style={{ color: "#ec4899" }}>.uz</span></span>
+          <span style={{ display: "none", fontWeight: 800, fontSize: 22, color: "#4f46e5" }}>Smartjadval<span style={{ color: "#ec4899" }}>.uz</span></span>
         </div>
       </div>
 
-      <div className="dash-marquee">
-        <div className="dash-marquee-track">
-          <span>{MARQUEE_TEXT}</span>
-          <span>{MARQUEE_TEXT}</span>
+      {!onboardingDone && (
+        <div className="dash-onboard">
+          <div className="dash-onboard-head">
+            <div>
+              <div className="dash-onboard-title">🚀 Boshlash bosqichlari</div>
+              <div className="dash-onboard-sub">
+                Jadval tuzish uchun quyidagi qadamlarni bajaring — {doneCount}/{onboardSteps.length} bajarildi
+              </div>
+            </div>
+            <div className="dash-onboard-pct">{Math.round((doneCount / onboardSteps.length) * 100)}%</div>
+          </div>
+          <div className="dash-onboard-steps">
+            {onboardSteps.map((st, i) => (
+              <button
+                type="button"
+                key={st.key}
+                className={`dash-onboard-step ${st.done ? "done" : ""}`}
+                onClick={() => go(st.page)}
+                title={st.label}
+              >
+                <span className="dash-onboard-check">{st.done ? "✓" : i + 1}</span>
+                <span className="dash-onboard-label">{st.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="modern-stats">
         {stats.map((s) => (
@@ -397,7 +470,7 @@ export default function DashboardPage({
             <div className="modern-stat-label">{s.label}</div>
             <div className="modern-stat-value">{s.value}</div>
             <div className="modern-stat-plus" style={{ color: s.color }}>
-              +{Math.max(0, Math.floor(s.value / 10))} this month
+              Bo'limga o'tish →
             </div>
             <div className="modern-stat-icon" style={{ background: s.bg }}>
               {s.icon}

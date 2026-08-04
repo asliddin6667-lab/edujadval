@@ -900,7 +900,7 @@ export default function SchedulePage({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "edujadval-sinflar-rangli.xls";
+    a.download = "smartjadval-sinflar-rangli.xls";
     a.click();
     URL.revokeObjectURL(url);
   }

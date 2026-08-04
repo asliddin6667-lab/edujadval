@@ -8,8 +8,8 @@ import { checkSubscription, refreshSubscription } from "../services/authService"
 //  SOZLAMALAR (o'zingizga moslang):
 // =====================================================================
 const PLANS = [
-  { key: "standart", label: "Standart — 6 oy", days: 180, price: "50 000 so'm", popular: false },
-  { key: "yillik", label: "1 yil", days: 365, price: "80 000 so'm", popular: true, note: "Eng foydali!" },
+  { key: "standart", label: "Standart — 6 oy", days: 180, price: "200 000 so'm", popular: false },
+  { key: "yillik", label: "1 yil", days: 365, price: "350 000 so'm", popular: true, note: "Eng foydali!" },
 ];
 // To'lov havolasi (Payme/Click/Uzum sahifangiz). Bo'sh qoldirsangiz tugma
 // faqat ko'rsatmalarni ochadi.
@@ -160,7 +160,7 @@ export default function SubscriptionPage({ user, onUnlocked, onLogout, toast }) 
         </div>
 
         <p style={{ textAlign: "center", color: "rgba(255,255,255,.65)", fontSize: 12.5, marginTop: 14 }}>
-          Savollar bo'lsa: {ADMIN_PHONE} · Edujadval.uz
+          Savollar bo'lsa: {ADMIN_PHONE} · Smartjadval.uz
         </p>
       </div>
     </div>

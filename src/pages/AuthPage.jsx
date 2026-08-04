@@ -26,7 +26,7 @@ function formatLocalPhone(value) {
     .join(" ");
 }
 
-export default function AuthPage({ onAuth, initialMode = "login" }) {
+export default function AuthPage({ onAuth, initialMode = "login", onBack }) {
   const savedEmail = localStorage.getItem("edu_remember_email") || "";
   // Faqat login/register rejimlari mavjud; boshqasi kelsa login'ga tushadi
   const [mode, setMode] = useState(initialMode === "register" ? "register" : "login");
@@ -154,11 +154,26 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
 
       <div className="edu-center">
         <div className="edu-card">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              style={{
+                position: "absolute", top: 14, left: 16, border: "none",
+                background: "transparent", cursor: "pointer", color: "#6d68a0",
+                fontSize: 13.5, fontWeight: 700, padding: "6px 8px",
+                borderRadius: 9, fontFamily: "inherit",
+              }}
+              title="Bosh sahifaga qaytish"
+            >
+              ← Bosh sahifa
+            </button>
+          )}
           <div className="edu-card__brand">
             <img
               className="edu-card__logoimg"
               src={`${import.meta.env.BASE_URL}logo.png`}
-              alt="Edujadval.uz"
+              alt="Smartjadval.uz"
             />
           </div>
 
@@ -194,12 +209,13 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
                       className="edu-field__input"
                       value={form.schoolName}
                       onChange={e => update("schoolName", e.target.value)}
-                      placeholder="Turon odob-ilm maktabi"
+                      placeholder="Masalan: 25-son umumta'lim maktabi"
                     />
                   </div>
                 </div>
 
-                {/* ---------- VILOYAT / TUMAN ---------- */}
+                {/* ---------- VILOYAT / TUMAN (yonma-yon) ---------- */}
+                <div className="edu-form-row">
                 <div className="edu-field">
                   <label className="edu-field__label">VILOYAT / SHAHAR</label>
                   <div className="edu-field__wrap">
@@ -241,6 +257,7 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
                       ))}
                     </select>
                   </div>
+                </div>
                 </div>
 
                 <div className="edu-field">
@@ -372,81 +389,10 @@ export default function AuthPage({ onAuth, initialMode = "login" }) {
             </div>
           )}
 
-          {/* ---------- LOYIHA YARATUVCHISI ---------- */}
-          {/* Kirish va ro'yxatdan o'tish — ikkalasida ham ko'rinadi. */}
-          <div style={{
-            marginTop: 20,
-            padding: "13px 15px",
-            borderRadius: 16,
-            background: "linear-gradient(135deg,#fffefa 0%,#fdf7e6 55%,#faf0d4 100%)",
-            border: "1.5px solid #ead9ac",
-            boxShadow: "0 5px 18px rgba(180,142,45,.14), inset 0 1px 0 rgba(255,255,255,.75)",
-            display: "flex",
-            alignItems: "center",
-            gap: 13,
-            }}>
-            <div style={{
-              flexShrink: 0,
-              width: 54, height: 54,
-              borderRadius: 14,
-              background: "#fff",
-              border: "1px solid #f0e4c4",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 2px 8px rgba(180,142,45,.16)",
-              overflow: "hidden",
-            }}>
-              <img
-                src={`${import.meta.env.BASE_URL}turon-logo.png`}
-                alt="Turon odob-ilm xususiy maktabi"
-                style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                onError={(e) => {
-                  // .png topilmasa .jpg ni sinaymiz, u ham bo'lmasa yashiramiz
-                  const el = e.currentTarget;
-                  if (!el.dataset.tryJpg) {
-                    el.dataset.tryJpg = "1";
-                    el.src = `${import.meta.env.BASE_URL}turon-logo.jpg`;
-                  } else {
-                    el.style.display = "none";
-                  }
-                }}
-              />
-            </div>
-
-            <div style={{ minWidth: 0 }}>
-              <div style={{
-                fontSize: 10,
-                fontWeight: 800,
-                letterSpacing: 1.3,
-                textTransform: "uppercase",
-                color: "#b08d3c",
-                marginBottom: 4,
-              }}>
-                Tomonidan yaratildi
-              </div>
-              <div style={{
-                fontSize: 14,
-                fontWeight: 800,
-                color: "#5b4715",
-                lineHeight: 1.3,
-              }}>
-                Turon odob-ilm
-              </div>
-              <div style={{
-                fontSize: 11.5,
-                fontWeight: 700,
-                letterSpacing: .4,
-                color: "#9c8340",
-                marginTop: 1,
-              }}>
-                xususiy maktabi
-              </div>
-            </div>
-            </div>
-
         </div>
 
         <div className="edu-footer">
-          © 2026 Edujadval.uz. Barcha huquqlar himoyalangan. · Admin: {ADMIN_NAME}
+          © 2026 Smartjadval.uz. Barcha huquqlar himoyalangan. · Admin: {ADMIN_NAME}
         </div>
       </div>
     </div>

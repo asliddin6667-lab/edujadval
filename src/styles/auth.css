@@ -258,9 +258,10 @@
 }
 
 .edu-card {
+  position: relative;
   width: 100%;
   max-width: 470px;
-  padding: 38px 42px 34px;
+  padding: 28px 34px 26px;
   border-radius: 26px;
   background: #ffffff;
   box-shadow:
@@ -269,10 +270,10 @@
 }
 
 /* ---------- Brend ---------- */
-.edu-card__brand { text-align: center; margin-bottom: 22px; }
+.edu-card__brand { text-align: center; margin-bottom: 14px; }
 
 .edu-card__logoimg {
-  max-width: 380px;
+  max-width: 250px;
   width: 100%;
   height: auto;
   display: inline-block;
@@ -320,9 +321,9 @@
 .edu-alert--info { background: #e3ecfe; border: 1px solid #a3bffa; color: #2a4dad; }
 
 /* ---------- Forma ---------- */
-.edu-form { display: flex; flex-direction: column; gap: 16px; }
+.edu-form { display: flex; flex-direction: column; gap: 13px; }
 
-.edu-field { display: flex; flex-direction: column; gap: 7px; }
+.edu-field { display: flex; flex-direction: column; gap: 5px; }
 .edu-field__label {
   font-size: 11.5px;
   font-weight: 800;
@@ -340,7 +341,7 @@
 }
 .edu-field__input {
   width: 100%;
-  padding: 13px 16px 13px 44px;
+  padding: 11px 16px 11px 42px;
   border-radius: 12px;
   border: 1.5px solid #d8d4f0;
   background: #fff;
@@ -448,4 +449,22 @@
   .edu-card { padding: 30px 24px 26px; border-radius: 22px; }
   .edu-card__logo { font-size: 28px; }
   .edu-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
+/* ============================================================
+   IXCHAM RO'YXATDAN O'TISH — yonma-yon maydonlar
+   ============================================================ */
+.edu-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.edu-form-row .edu-field { min-width: 0; }
+.edu-form-row .edu-field__input {
+  padding-left: 38px;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+}
+.edu-form-row .edu-field__icon { left: 11px; font-size: 14px; }
+@media (max-width: 520px) {
+  .edu-form-row { grid-template-columns: 1fr; }
 }
