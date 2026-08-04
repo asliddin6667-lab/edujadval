@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { DAYS, typeOfGroup } from "../utils/constants";
 import { generateSchedule, isTeachingSlot, classHasLunchAt, classesHaveLunchAt } from "../utils/scheduleGenerator";
+import { exportColoredSchedule } from "../utils/coloredScheduleExport";
 
 const FALLBACK_PALETTE = [
   "#2563eb", "#16a34a", "#7c3aed", "#0891b2", "#f97316",
@@ -32,14 +33,6 @@ function hexToRgb(hex = "#6366f1") {
 function rgba(hex, alpha) {
   const { r, g, b } = hexToRgb(hex);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-function textEscape(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
 
 function classIdsOf(lesson) {
@@ -824,85 +817,21 @@ export default function SchedulePage({
     toast?.("Dars jadvali tozalandi", "success");
   }
 
-  function exportClassBasedSchedule() {
-    const visible = visibleClasses.length ? visibleClasses : sortedClasses;
-    const legendStyles = subjects.map((subject, index) => {
-      const color = subjectColor(subject, index);
-      return `.subject-${subject.id}{background:${rgba(color, 0.12)};border:1px solid ${rgba(color, 0.35)};color:${color};}`;
-    }).join("\n");
-
-    let html = `
-      <html>
-      <head>
-        <meta charset="UTF-8" />
-        <style>
-          body{font-family:Arial, sans-serif;color:#111827;}
-          h2{margin:26px 0 10px;font-size:20px;}
-          table{border-collapse:collapse;width:100%;margin-bottom:28px;}
-          th{background:#0f172a;color:#fff;font-weight:700;text-align:center;}
-          th,td{border:1px solid #cbd5e1;padding:8px;vertical-align:top;}
-          td.time{background:#f8fafc;font-weight:700;width:120px;white-space:nowrap;}
-          .lesson{border-radius:8px;padding:7px 8px;margin:2px 0;font-size:12px;line-height:1.35;}
-          .lesson b{display:block;font-size:13px;margin-bottom:3px;}
-          .muted{font-size:11px;color:#475569;}
-          ${legendStyles}
-        </style>
-      </head>
-      <body>
-        <h1>Dars jadvali — sinflar kesimida</h1>
-    `;
-
-    visible.forEach((cls) => {
-      html += `<h2>${textEscape(cls.name)} sinf</h2><table>`;
-      html += `<tr><th>Vaqt / Dars</th>${DAYS.map((day) => `<th>${textEscape(day)}</th>`).join("")}</tr>`;
-
-      sortedTimeslots.filter((slot) => slotAllowsClass(slot, cls.id)).forEach((slot) => {
-        html += `<tr><td class="time">${textEscape(slot.lessonNumber || "")}-dars<br>${textEscape(slot.startTime || "")} - ${textEscape(slot.endTime || "")}</td>`;
-
-        DAYS.forEach((day) => {
-          const offDays = Array.isArray(cls?.offDays) ? cls.offDays : [];
-          if (offDays.includes(day)) {
-            html += `<td style="background:#fef3c7;color:#b45309;font-weight:700;text-align:center">Dam</td>`;
-            return;
-          }
-          const grouped = groupLessons(getClassLessons(day, slot.id, cls.id));
-          if (!grouped.length) {
-            html += `<td></td>`;
-            return;
-          }
-
-          const cellHtml = grouped.map((lesson) => {
-            const detail = lessonDetails(lesson);
-            const isAlt = lesson.alternating && lesson.altSubjectId;
-            const altName = isAlt ? (subjectMap.get(lesson.altSubjectId)?.name || "Fan") : "";
-            const main = `<b>${textEscape(detail.subjectName)}${isAlt ? " / " + textEscape(altName) : ""}</b>`;
-            const meta = detail.parts.length > 1
-              ? detail.parts.map((part, index) => {
-                  const teacher = getName(teacherMap, part.teacherId, "Ustoz tanlanmagan");
-                  const room = part.roomId ? getName(roomMap, part.roomId, "Xona") : "Xonasiz";
-                  return `${textEscape(part.groupPart || `${index + 1}-guruh`)}: ${textEscape(teacher)} — ${textEscape(room)}`;
-                }).join("<br>")
-              : `${textEscape(getName(teacherMap, lesson.teacherId, "Ustoz tanlanmagan"))}<br>${textEscape(lesson.roomId ? getName(roomMap, lesson.roomId, "Xona") : "Xonasiz")}${isAlt ? `<br>⇄ juft/toq hafta${lesson.altTeacherId ? " · " + textEscape(altName) + ": " + textEscape(getName(teacherMap, lesson.altTeacherId, "")) : ""}` : ""}`;
-            return `<div class="lesson subject-${lesson.subjectId}">${main}<span class="muted">${meta}</span></div>`;
-          }).join("");
-
-          html += `<td>${cellHtml}</td>`;
-        });
-
-        html += `</tr>`;
-      });
-
-      html += `</table>`;
+  // Excel eksporti — umumiy rangli jadval moduli (coloredScheduleExport.js).
+  // Format: bo'sh soat qatorlari chiqmaydi, kunlar rangli qator bilan ajratiladi,
+  // kun nomlari katta shriftda, har fan o'z rangida.
+  async function exportExcel() {
+    const exportClasses = visibleClasses.length ? visibleClasses : sortedClasses;
+    await exportColoredSchedule({
+      classes: exportClasses,
+      subjects,
+      teachers,
+      rooms,
+      timeslots,
+      lunchGroups,
+      schedule,
+      toast,
     });
-
-    html += `</body></html>`;
-    const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "smartjadval-sinflar-rangli.xls";
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   return (
@@ -983,7 +912,7 @@ export default function SchedulePage({
                 {generating ? "⏳ Bajarilyapti…" : "⚡ Avtomatik jadval"}
               </button>
             )}
-            <button className="sch-btn sch-btn-soft-green" onClick={exportClassBasedSchedule} type="button">📥 Excel</button>
+            <button className="sch-btn sch-btn-soft-green" onClick={exportExcel} type="button">📥 Excel</button>
             <button className="sch-btn sch-btn-soft-blue" onClick={() => window.print()} type="button">📄 PDF</button>
             <button className="sch-btn sch-btn-soft-gray" onClick={() => window.print()} type="button">🖨 Chop etish</button>
             {setSchedule && <button className="sch-btn sch-btn-soft-red" onClick={handleClear} type="button">🗑 Tozalash</button>}
