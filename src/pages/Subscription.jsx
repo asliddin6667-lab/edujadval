@@ -8,13 +8,13 @@ import { checkSubscription, refreshSubscription } from "../services/authService"
 //  SOZLAMALAR (o'zingizga moslang):
 // =====================================================================
 const PLANS = [
-  { key: "yillik", label: "1 yil", days: 365, price: "200 000 so'm", popular: true, note: "Barcha imkoniyatlar" },
+  { key: "yillik", label: "1 yil", days: 365, price: "100 000 so'm", popular: true, note: "Barcha imkoniyatlar" },
 ];
 // To'lov havolasi (Payme/Click/Uzum sahifangiz). Bo'sh qoldirsangiz tugma
 // faqat ko'rsatmalarni ochadi.
 const PAYMENT_URL = "";
 // Karta raqami va admin aloqasi — to'lov ko'rsatmalarida chiqadi
-const CARD_NUMBER = "8600 1221 6304 1808";
+const CARD_NUMBER = "9860 2301 0280 5275";
 const CARD_OWNER = "Asliddin Munavvarov";
 const ADMIN_PHONE = "+998 94 136 66 67";
 // Telegram havolasi. Username'ingiz bo'lsa shu yerga yozing,
