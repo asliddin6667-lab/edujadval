@@ -55,7 +55,7 @@ const STEPS = [
 const PLANS = [
   {
     name: "1 yil",
-    price: "200 000 so'm",
+    price: "100 000 so'm",
     per: "bir yilga, bitta maktab uchun",
     popular: true,
     items: [
