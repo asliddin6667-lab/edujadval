@@ -8,8 +8,7 @@ import { checkSubscription, refreshSubscription } from "../services/authService"
 //  SOZLAMALAR (o'zingizga moslang):
 // =====================================================================
 const PLANS = [
-  { key: "standart", label: "Standart — 6 oy", days: 180, price: "200 000 so'm", popular: false },
-  { key: "yillik", label: "1 yil", days: 365, price: "350 000 so'm", popular: true, note: "Eng foydali!" },
+  { key: "yillik", label: "1 yil", days: 365, price: "200 000 so'm", popular: true, note: "Barcha imkoniyatlar" },
 ];
 // To'lov havolasi (Payme/Click/Uzum sahifangiz). Bo'sh qoldirsangiz tugma
 // faqat ko'rsatmalarni ochadi.
@@ -72,7 +71,7 @@ export default function SubscriptionPage({ user, onUnlocked, onLogout, toast }) 
             <p style={{ margin: "8px 0 0", color: "#64748b", fontSize: 14.5 }}>
               Salom, <b>{user?.name}</b>! {isExpired
                 ? "Ishni davom ettirish uchun obunani yangilang."
-                : "Ro'yxatdan o'tdingiz — endi tarifni tanlab to'lov qiling."}
+                : "Ro'yxatdan o'tdingiz — endi obunani faollashtirib to'lov qiling."}
             </p>
           </div>
 
@@ -91,8 +90,8 @@ export default function SubscriptionPage({ user, onUnlocked, onLogout, toast }) 
             </button>
           </div>
 
-          {/* Tariflar */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+          {/* Tarif */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", maxWidth: 360, margin: "0 auto 16px", gap: 14 }}>
             {PLANS.map((p) => (
               <div key={p.key} style={{
                 position: "relative", border: p.popular ? "2px solid #4f46e5" : "1.5px solid #e2e8f0",
@@ -104,7 +103,8 @@ export default function SubscriptionPage({ user, onUnlocked, onLogout, toast }) 
                     position: "absolute", top: -11, left: "50%", transform: "translateX(-50%)",
                     background: "linear-gradient(135deg,#6366f1,#4f46e5)", color: "#fff",
                     fontSize: 11, fontWeight: 800, padding: "3px 12px", borderRadius: 999,
-                  }}>ENG QULAY</div>
+                    whiteSpace: "nowrap",
+                  }}>YAGONA TARIF</div>
                 )}
                 <div style={{ fontSize: 15, fontWeight: 800, color: "#334155" }}>{p.label}</div>
                 <div style={{ fontSize: 22, fontWeight: 900, color: "#0f172a", margin: "6px 0 2px" }}>{p.price}</div>
@@ -129,7 +129,7 @@ export default function SubscriptionPage({ user, onUnlocked, onLogout, toast }) 
             padding: "14px 16px", fontSize: 13.5, color: "#92400e", lineHeight: 1.65, marginBottom: 12,
           }}>
             <b>To'lov tartibi:</b>
-            <br />1. Quyidagi kartaga tanlagan tarif summasini o'tkazing:
+            <br />1. Quyidagi kartaga 200 000 so'm o'tkazing:
             <br />&nbsp;&nbsp;&nbsp;💳 <b style={{ letterSpacing: 1 }}>{CARD_NUMBER}</b> ({CARD_OWNER})
             <br />2. To'lov izohiga yoki xabar bilan ID'ingizni yuboring: <b>{sub.uid}</b>
             <br />3. Chekni yuboring: <b>{ADMIN_PHONE}</b> (Telegram/telefon)

@@ -54,27 +54,18 @@ const STEPS = [
 
 const PLANS = [
   {
-    name: "Standart — 6 oy",
+    name: "1 yil",
     price: "200 000 so'm",
-    per: "yarim yilga, bitta maktab uchun",
-    popular: false,
+    per: "bir yilga, bitta maktab uchun",
+    popular: true,
     items: [
       "Cheksiz sinf, fan va o'qituvchi",
       "Avtomatik jadval tuzish",
       "Excel eksport",
       "Bulutda saqlash va sinxronizatsiya",
-    ],
-  },
-  {
-    name: "1 yil",
-    price: "350 000 so'm",
-    per: "bir yilga, bitta maktab uchun",
-    popular: true,
-    items: [
-      "Standart tarifning barcha imkoniyatlari",
       "O'qituvchini almashtirish moduli",
       "To'liq tahlil va statistika",
-      "Ustuvor qo'llab-quvvatlash (Telegram)",
+      "Qo'llab-quvvatlash (Telegram)",
     ],
   },
 ];
@@ -202,15 +193,15 @@ export default function Landing({ onLogin, onRegister }) {
           <h2 className="land-section-title">Narxlar</h2>
           <p className="land-section-sub">
             Ro'yxatdan o'tish bepul — platformani mehmon rejimida ko'rib
-            chiqing, keyin o'zingizga mos tarifni tanlang.
+            chiqing, keyin obunani faollashtiring.
           </p>
-          <div className="land-pricing">
+          <div className="land-pricing" style={{ maxWidth: 440, margin: "0 auto" }}>
             {PLANS.map((p) => (
               <div
                 className={`land-price-card ${p.popular ? "land-price-card--popular" : ""}`}
                 key={p.name}
               >
-                {p.popular && <div className="land-price-flag">ENG FOYDALI</div>}
+                {p.popular && <div className="land-price-flag">BARCHA IMKONIYATLAR</div>}
                 <div className="land-price-name">{p.name}</div>
                 <div className="land-price-value">{p.price}</div>
                 <div className="land-price-per">{p.per}</div>
