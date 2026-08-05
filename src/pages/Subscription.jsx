@@ -129,7 +129,7 @@ export default function SubscriptionPage({ user, onUnlocked, onLogout, toast }) 
             padding: "14px 16px", fontSize: 13.5, color: "#92400e", lineHeight: 1.65, marginBottom: 12,
           }}>
             <b>To'lov tartibi:</b>
-            <br />1. Quyidagi kartaga 200 000 so'm o'tkazing:
+            <br />1. Quyidagi kartaga 100 000 so'm o'tkazing:
             <br />&nbsp;&nbsp;&nbsp;💳 <b style={{ letterSpacing: 1 }}>{CARD_NUMBER}</b> ({CARD_OWNER})
             <br />2. To'lov izohiga yoki xabar bilan ID'ingizni yuboring: <b>{sub.uid}</b>
             <br />3. Chekni yuboring: <b>{ADMIN_PHONE}</b> (Telegram/telefon)
