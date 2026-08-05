@@ -195,7 +195,10 @@ export default function Landing({ onLogin, onRegister }) {
             Ro'yxatdan o'tish bepul — platformani mehmon rejimida ko'rib
             chiqing, keyin obunani faollashtiring.
           </p>
-          <div className="land-pricing" style={{ maxWidth: 440, margin: "0 auto" }}>
+          <div
+            className="land-pricing"
+            style={{ display: "grid", gridTemplateColumns: "1fr", maxWidth: 640, margin: "0 auto" }}
+          >
             {PLANS.map((p) => (
               <div
                 className={`land-price-card ${p.popular ? "land-price-card--popular" : ""}`}
@@ -205,7 +208,15 @@ export default function Landing({ onLogin, onRegister }) {
                 <div className="land-price-name">{p.name}</div>
                 <div className="land-price-value">{p.price}</div>
                 <div className="land-price-per">{p.per}</div>
-                <ul className="land-price-list">
+                <ul
+                  className="land-price-list"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+                    columnGap: 24,
+                    textAlign: "left",
+                  }}
+                >
                   {p.items.map((item) => <li key={item}>{item}</li>)}
                 </ul>
                 <button
