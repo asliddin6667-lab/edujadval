@@ -99,23 +99,25 @@ export default function DashboardPage({
           color: #64748b;
         }
 
+        /* auto-fit + minmax — brauzer zoomi va ekran kengligiga qarab
+           kartalar soni avtomatik moslashadi (6 → 4 → 3 → 2 → 1) */
         .modern-stats {
           display: grid;
-          grid-template-columns: repeat(6, 1fr);
+          grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
           gap: 18px;
           margin-bottom: 24px;
         }
 
         .modern-stat {
-          position: relative;
-          overflow: hidden;
           background: #fff;
           border: 1px solid #e5e7eb;
           border-radius: 22px;
-          padding: 22px;
+          padding: 20px;
           min-height: 150px;
           box-shadow: 0 12px 35px rgba(15, 23, 42, .07);
           transition: .25s;
+          display: flex;
+          flex-direction: column;
         }
 
         .modern-stat:hover {
@@ -123,34 +125,46 @@ export default function DashboardPage({
           box-shadow: 0 18px 45px rgba(15, 23, 42, .12);
         }
 
+        /* Sarlavha va emoji yonma-yon — emoji endi absolute emas,
+           shuning uchun hech qachon yozuv ustiga chiqmaydi */
+        .modern-stat-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 10px;
+          margin-bottom: 14px;
+        }
+
         .modern-stat-icon {
-          position: absolute;
-          right: 18px;
-          top: 22px;
-          width: 58px;
-          height: 58px;
-          border-radius: 18px;
+          width: 52px;
+          height: 52px;
+          border-radius: 16px;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 30px;
+          font-size: 26px;
+          flex-shrink: 0;
         }
 
         .modern-stat-label {
           font-weight: 700;
           color: #334155;
-          margin-bottom: 20px;
+          line-height: 1.3;
+          padding-top: 4px;
+          min-width: 0;
+          overflow-wrap: anywhere;
         }
 
         .modern-stat-value {
-          font-size: 34px;
+          font-size: clamp(24px, 2.2vw, 34px);
           font-weight: 900;
           color: #0f172a;
           line-height: 1;
         }
 
         .modern-stat-plus {
-          margin-top: 20px;
+          margin-top: auto;
+          padding-top: 16px;
           font-size: 13px;
           font-weight: 700;
         }
@@ -309,12 +323,11 @@ export default function DashboardPage({
         }
 
         @media (max-width: 1200px) {
-          .modern-stats { grid-template-columns: repeat(3, 1fr); }
           .info-grid { grid-template-columns: repeat(2, 1fr); }
         }
 
         @media (max-width: 800px) {
-          .modern-stats, .modern-grid, .info-grid { grid-template-columns: 1fr; }
+          .modern-grid, .info-grid { grid-template-columns: 1fr; }
           .dash-search { display: none; }
         }
 
@@ -467,13 +480,15 @@ export default function DashboardPage({
       <div className="modern-stats">
         {stats.map((s) => (
           <div className="modern-stat" key={s.label} onClick={() => go(s.page)} style={{ cursor: "pointer" }} title={`${s.label} bo'limi`}>
-            <div className="modern-stat-label">{s.label}</div>
+            <div className="modern-stat-head">
+              <div className="modern-stat-label">{s.label}</div>
+              <div className="modern-stat-icon" style={{ background: s.bg }}>
+                {s.icon}
+              </div>
+            </div>
             <div className="modern-stat-value">{s.value}</div>
             <div className="modern-stat-plus" style={{ color: s.color }}>
               Bo'limga o'tish →
-            </div>
-            <div className="modern-stat-icon" style={{ background: s.bg }}>
-              {s.icon}
             </div>
           </div>
         ))}
