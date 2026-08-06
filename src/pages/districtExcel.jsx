@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
+import * as XS from "xlsx-js-style";
 import {
   fetchExcelStore, upsertExcelData, deleteExcelData,
 } from "../services/districtExcelService";
@@ -20,6 +21,10 @@ import "./districtExcel.css";
 //
 //  SetkaMatrix, JadvalViewer va TeacherHoursTable eksport qilinadi —
 //  DistrictApp.jsx dagi SchoolDetail (maktab oynasi) ham ishlatadi.
+//
+//  EXCEL EKSPORT: barcha eksportlar xlsx-js-style bilan RANGLI
+//  formatda chiqadi (sarlavha banner, zebra qatorlar, ramkalar).
+//  O'qish (yuklangan faylni parse qilish) esa oddiy xlsx bilan.
 // =====================================================================
 
 const LS_KEY = "edu-tuman-excel-data"; // eski (legacy) brauzer xotirasi
@@ -71,11 +76,172 @@ function legacyCount(legacy) {
   return n;
 }
 
+// =====================================================================
+//  CHIROYLI EXCEL EKSPORT — umumiy stil yordamchilari (xlsx-js-style)
+// =====================================================================
+const XL_THEME = {
+  indigo:  { accent: "4F46E5", dark: "3730A3", zebra: "EEF2FF" },
+  teal:    { accent: "0D9488", dark: "0F766E", zebra: "E6FBF5" },
+  violet:  { accent: "7C3AED", dark: "5B21B6", zebra: "F3EFFF" },
+  amber:   { accent: "D97706", dark: "92400E", zebra: "FEF6E7" },
+};
+const XL_BORDER = "C3C9D5";
+const XL_TEXT = "1F2937";
+
+const xlFill = (rgb) => ({ patternType: "solid", fgColor: { rgb } });
+const xlBorder = (rgb = XL_BORDER) => ({
+  top: { style: "thin", color: { rgb } },
+  bottom: { style: "thin", color: { rgb } },
+  left: { style: "thin", color: { rgb } },
+  right: { style: "thin", color: { rgb } },
+});
+
+/**
+ * Bitta stilli varaq (sheet) yasaydi:
+ *
+ *   0-qator: TITLE  (katta oq matn, rangli banner, merge)
+ *   1-qator: subtitle (kichik matn, o'sha banner, merge)
+ *   2-qator: bo'sh ajratuvchi
+ *   3-qator: ustun sarlavhalari (oq qalin, to'q fon)
+ *   4+     : ma'lumot (zebra qatorlar, ramkalar)
+ *   oxiri  : ixtiyoriy JAMI qatori (to'q fon, oq qalin)
+ *
+ * Parametrlar:
+ *   title, subtitle — banner matnlari
+ *   header  — ustun nomlari massivi
+ *   body    — ma'lumot qatorlari (massivlar massivi)
+ *   widths  — ustun kengliklari (wch sonlar)
+ *   align   — har ustun uchun "left" | "center" | "right"
+ *   theme   — XL_THEME kaliti ("indigo" | "teal" | "violet" | "amber")
+ *   boldCols  — qalin ko'rsatiladigan ustun indekslari
+ *   wrapCols  — matni o'ralib chiqadigan ustunlar
+ *   totalLast — true bo'lsa, body'ning oxirgi qatori JAMI sifatida bezaladi
+ *   diffCol   — "Farq" ustuni indeksi (0 → yashil, boshqasi → sariq)
+ */
+function makeStyledSheet({
+  title, subtitle, header, body,
+  widths = [], align = [], theme = "indigo",
+  boldCols = [], wrapCols = [],
+  totalLast = false, diffCol = -1,
+}) {
+  const th = XL_THEME[theme] || XL_THEME.indigo;
+  const nCols = header.length;
+  const aoa = [[title], [subtitle], [], header, ...body];
+  const ws = XS.utils.aoa_to_sheet(aoa);
+
+  ws["!cols"] = header.map((_, i) => ({ wch: widths[i] || 12 }));
+  if (nCols > 1) {
+    ws["!merges"] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: nCols - 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: nCols - 1 } },
+    ];
+  }
+  ws["!rows"] = [
+    { hpt: 32 }, { hpt: 17 }, { hpt: 6 }, { hpt: 26 },
+    ...body.map(() => ({ hpt: 20 })),
+  ];
+
+  const lastRow = 3 + body.length;
+  const totalRowIdx = totalLast ? lastRow : -1;
+
+  for (let R = 0; R <= lastRow; R++) {
+    for (let C = 0; C < nCols; C++) {
+      const addr = XS.utils.encode_cell({ r: R, c: C });
+      if (!ws[addr]) ws[addr] = { v: "", t: "s" };
+      const cell = ws[addr];
+
+      if (R === 0) {
+        cell.s = {
+          font: { name: "Calibri", sz: 15, bold: true, color: { rgb: "FFFFFF" } },
+          fill: xlFill(th.accent),
+          alignment: { horizontal: "center", vertical: "center" },
+        };
+      } else if (R === 1) {
+        cell.s = {
+          font: { name: "Calibri", sz: 10, color: { rgb: "EDEBFF" } },
+          fill: xlFill(th.accent),
+          alignment: { horizontal: "center", vertical: "center" },
+        };
+      } else if (R === 2) {
+        // bo'sh ajratuvchi qator — stilsiz
+      } else if (R === 3) {
+        cell.s = {
+          font: { name: "Calibri", sz: 11, bold: true, color: { rgb: "FFFFFF" } },
+          fill: xlFill(th.dark),
+          alignment: { horizontal: "center", vertical: "center", wrapText: true },
+          border: xlBorder(th.dark),
+        };
+      } else if (R === totalRowIdx) {
+        cell.s = {
+          font: { name: "Calibri", sz: 11, bold: true, color: { rgb: "FFFFFF" } },
+          fill: xlFill(th.dark),
+          alignment: {
+            horizontal: align[C] === "left" ? "left" : "center",
+            vertical: "center",
+          },
+          border: xlBorder(th.dark),
+        };
+      } else {
+        const s = {
+          font: { name: "Calibri", sz: 10.5, color: { rgb: XL_TEXT } },
+          alignment: {
+            horizontal: align[C] || "center",
+            vertical: "center",
+            wrapText: wrapCols.includes(C) || undefined,
+          },
+          border: xlBorder(),
+        };
+        if ((R - 4) % 2 === 1) s.fill = xlFill(th.zebra);
+        if (boldCols.includes(C)) s.font.bold = true;
+        if (C === diffCol && typeof cell.v === "number") {
+          s.font.bold = true;
+          s.font.color = { rgb: cell.v === 0 ? "047857" : "B45309" };
+        }
+        cell.s = s;
+      }
+    }
+  }
+
+  return ws;
+}
+
+/** Shablon varag'iga oddiy stil: rangli sarlavha + ramkali qatorlar. */
+function styleTemplateSheet(ws, nCols, nRows) {
+  for (let R = 0; R < nRows; R++) {
+    for (let C = 0; C < nCols; C++) {
+      const addr = XS.utils.encode_cell({ r: R, c: C });
+      if (!ws[addr]) ws[addr] = { v: "", t: "s" };
+      if (R === 0) {
+        ws[addr].s = {
+          font: { name: "Calibri", sz: 11, bold: true, color: { rgb: "FFFFFF" } },
+          fill: xlFill(XL_THEME.indigo.accent),
+          alignment: { horizontal: "center", vertical: "center" },
+          border: xlBorder(XL_THEME.indigo.dark),
+        };
+      } else {
+        ws[addr].s = {
+          font: { name: "Calibri", sz: 10.5, color: { rgb: XL_TEXT } },
+          alignment: { vertical: "center" },
+          border: xlBorder(),
+        };
+        if (R % 2 === 0) ws[addr].s.fill = xlFill(XL_THEME.indigo.zebra);
+      }
+    }
+  }
+  ws["!rows"] = [{ hpt: 24 }];
+}
+
+function todayStr() {
+  return new Date().toLocaleDateString("uz-UZ", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+  });
+}
+
 // ---------------------------------------------------------------------
-//  SHABLON YUKLAB OLISH
+//  SHABLON YUKLAB OLISH (rangli sarlavha bilan)
 // ---------------------------------------------------------------------
 function downloadTemplate(type) {
-  const wb = XLSX.utils.book_new();
+  const wb = XS.utils.book_new();
   let aoa, cols;
 
   if (type === "teachers") {
@@ -105,10 +271,11 @@ function downloadTemplate(type) {
     cols = [{ wch: 8 }, { wch: 12 }, { wch: 8 }, { wch: 20 }, { wch: 32 }, { wch: 14 }];
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const ws = XS.utils.aoa_to_sheet(aoa);
   ws["!cols"] = cols;
-  XLSX.utils.book_append_sheet(wb, ws, "Shablon");
-  XLSX.writeFile(wb, TYPES[type].file);
+  styleTemplateSheet(ws, aoa[0].length, aoa.length);
+  XS.utils.book_append_sheet(wb, ws, "Shablon");
+  XS.writeFile(wb, TYPES[type].file);
 }
 
 // ---------------------------------------------------------------------
@@ -952,28 +1119,42 @@ export function TeacherHoursTable({ teachers, jadval, title = "👨‍🏫 O'qit
 }
 
 // =====================================================================
-//  MAKTAB HISOBOTINI EXCEL'GA EKSPORT
+//  MAKTAB HISOBOTINI EXCEL'GA EKSPORT (RANGLI, STILLI)
 //
 //  Bitta maktabning barcha ma'lumotlarini bitta .xlsx faylga yig'adi:
-//    1-varaq: Dars jadvali (uzun format)
-//    2-varaq: Sinf-fan soatlari (setka matritsasi, jamilar bilan)
-//    3-varaq: O'qituvchi haftalik soatlari (Excel vs jadval, farq)
+//    1-varaq: Dars jadvali (uzun format)          — indigo
+//    2-varaq: Sinf-fan soatlari (setka, jamilar)  — teal
+//    3-varaq: O'qituvchi haftalik soatlari        — binafsha
+//
+//  Har varaqda: maktab nomi banner, sana, rangli sarlavhalar,
+//  zebra qatorlar, ramkalar va JAMI qatori.
 // =====================================================================
 export function exportSchoolExcel(schoolName, data, opts = {}) {
   const declaredLabel = opts.declaredLabel || "Excel soati";
-  const wb = XLSX.utils.book_new();
+  const wb = XS.utils.book_new();
+  const name = String(schoolName || "Maktab");
+  const stamp = `Edujadval · Tuman hisoboti · ${todayStr()}`;
   let sheets = 0;
 
+  // ---------- 1-varaq: Dars jadvali ----------
   if (data?.jadval?.rows?.length) {
-    const ws = XLSX.utils.aoa_to_sheet([
-      ["Sinf", "Kun", "Dars №", "Fan", "O'qituvchi", "Xona"],
-      ...data.jadval.rows.map((r) => [r.klass, r.day, r.no, r.subject, r.teacher || "", r.room || ""]),
-    ]);
-    ws["!cols"] = [{ wch: 8 }, { wch: 12 }, { wch: 8 }, { wch: 22 }, { wch: 32 }, { wch: 14 }];
-    XLSX.utils.book_append_sheet(wb, ws, "Jadval");
+    const ws = makeStyledSheet({
+      title: `📅 ${name} — DARS JADVALI`,
+      subtitle: stamp,
+      header: ["Sinf", "Kun", "Dars №", "Fan", "O'qituvchi", "Xona"],
+      body: data.jadval.rows.map((r) => [
+        r.klass, r.day, r.no, r.subject, r.teacher || "", r.room || "",
+      ]),
+      widths: [9, 13, 8, 24, 32, 15],
+      align: ["center", "left", "center", "left", "left", "left"],
+      boldCols: [0, 3],
+      theme: "indigo",
+    });
+    XS.utils.book_append_sheet(wb, ws, "Jadval");
     sheets++;
   }
 
+  // ---------- 2-varaq: Sinf-fan soatlari (setka) ----------
   if (data?.setka?.rows?.length) {
     const classes = data.setka.classes || [];
     const colTotal = {};
@@ -989,33 +1170,56 @@ export function exportSchoolExcel(schoolName, data, opts = {}) {
       });
       return [r.subject, ...cells, rowSum];
     });
-    const ws = XLSX.utils.aoa_to_sheet([
-      ["Fan", ...classes, "Jami"],
-      ...body,
-      ["JAMI", ...classes.map((c) => colTotal[c] || ""), grand],
-    ]);
-    ws["!cols"] = [{ wch: 22 }, ...classes.map(() => ({ wch: 7 })), { wch: 8 }];
-    XLSX.utils.book_append_sheet(wb, ws, "Soat setkasi");
+    body.push(["JAMI", ...classes.map((c) => colTotal[c] || ""), grand]);
+
+    const ws = makeStyledSheet({
+      title: `🕐 ${name} — SINF-FAN SOATLARI`,
+      subtitle: stamp,
+      header: ["Fan", ...classes, "Jami"],
+      body,
+      widths: [24, ...classes.map(() => 7), 8],
+      align: ["left", ...classes.map(() => "center"), "center"],
+      boldCols: [0, classes.length + 1],
+      theme: "teal",
+      totalLast: true,
+    });
+    XS.utils.book_append_sheet(wb, ws, "Soat setkasi");
     sheets++;
   }
 
+  // ---------- 3-varaq: O'qituvchi soatlari ----------
   const { list, usedDays } = computeTeacherHours(data?.teachers, data?.jadval);
   if (list.length) {
-    const ws = XLSX.utils.aoa_to_sheet([
-      ["№", "F.I.Sh.", "Fani", declaredLabel, "Jadvaldagi soati", "Farq",
-        ...usedDays, "Sinflar"],
-      ...list.map((t, i) => [
-        i + 1, t.name, t.subject || "", t.declared || "", t.actual || "",
-        t.actual - t.declared,
-        ...usedDays.map((d) => t.days[d] || ""),
-        t.classes.join(", "),
-      ]),
+    const totDecl = list.reduce((a, t) => a + t.declared, 0);
+    const totAct = list.reduce((a, t) => a + t.actual, 0);
+    const dayTotals = usedDays.map((d) =>
+      list.reduce((a, t) => a + (t.days[d] || 0), 0) || ""
+    );
+
+    const body = list.map((t, i) => [
+      i + 1, t.name, t.subject || "", t.declared || "", t.actual || "",
+      t.actual - t.declared,
+      ...usedDays.map((d) => t.days[d] || ""),
+      t.classes.join(", "),
     ]);
-    ws["!cols"] = [
-      { wch: 5 }, { wch: 32 }, { wch: 18 }, { wch: 11 }, { wch: 14 }, { wch: 7 },
-      ...usedDays.map(() => ({ wch: 10 })), { wch: 28 },
-    ];
-    XLSX.utils.book_append_sheet(wb, ws, "O'qituvchi soatlari");
+    body.push(["", "JAMI", "", totDecl, totAct, totAct - totDecl, ...dayTotals, ""]);
+
+    const ws = makeStyledSheet({
+      title: `👨‍🏫 ${name} — O'QITUVCHI HAFTALIK SOATLARI`,
+      subtitle: stamp,
+      header: ["№", "F.I.Sh.", "Fani", declaredLabel, "Jadvalda", "Farq",
+        ...usedDays.map((d) => DAY_SHORT[d] || d), "Sinflar"],
+      body,
+      widths: [5, 32, 18, 13, 11, 7, ...usedDays.map(() => 6), 30],
+      align: ["center", "left", "left", "center", "center", "center",
+        ...usedDays.map(() => "center"), "left"],
+      boldCols: [1],
+      wrapCols: [6 + usedDays.length],
+      theme: "violet",
+      totalLast: true,
+      diffCol: 5,
+    });
+    XS.utils.book_append_sheet(wb, ws, "O'qituvchi soatlari");
     sheets++;
   }
 
@@ -1025,7 +1229,7 @@ export function exportSchoolExcel(schoolName, data, opts = {}) {
     .replace(/[\\/:*?"<>|]/g, "")
     .trim()
     .slice(0, 60) || "maktab";
-  XLSX.writeFile(wb, `${safe}_hisobot.xlsx`);
+  XS.writeFile(wb, `${safe}_hisobot.xlsx`);
   return true;
 }
 
@@ -1114,26 +1318,45 @@ export function ReportsPage({ schools }) {
   const selData = (schoolId && store[schoolId]) || null;
   const selSetka = selData?.setka;
 
+  // Tuman kesimidagi jamlanma hisobot — rangli, stilli Excel
   function exportReport() {
-    const wb = XLSX.utils.book_new();
+    const wb = XS.utils.book_new();
+    const stamp = `Edujadval · Tuman jamlanma hisoboti · ${todayStr()}`;
 
-    const ws1 = XLSX.utils.aoa_to_sheet([
-      ["Maktab", "Ustozlar", "Sinflar", "Haftalik jami soat", "Jadval darslari"],
-      ...agg.perSchool.map((r) => [r.name, r.teachers, r.classes, r.hours, r.jadvalRows]),
-      [],
-      ["JAMI", agg.totalTeachers, agg.totalClasses, agg.totalHours, ""],
+    const body1 = agg.perSchool.map((r) => [
+      r.name, r.teachers, r.classes, r.hours, r.jadvalRows,
     ]);
-    ws1["!cols"] = [{ wch: 34 }, { wch: 10 }, { wch: 9 }, { wch: 18 }, { wch: 15 }];
-    XLSX.utils.book_append_sheet(wb, ws1, "Maktablar");
+    body1.push(["JAMI", agg.totalTeachers, agg.totalClasses, agg.totalHours, ""]);
+    const ws1 = makeStyledSheet({
+      title: "🏫 TUMAN MAKTABLARI HISOBOTI",
+      subtitle: stamp,
+      header: ["Maktab", "Ustozlar", "Sinflar", "Haftalik jami soat", "Jadval darslari"],
+      body: body1,
+      widths: [36, 10, 9, 18, 15],
+      align: ["left", "center", "center", "center", "center"],
+      boldCols: [0, 3],
+      theme: "indigo",
+      totalLast: true,
+    });
+    XS.utils.book_append_sheet(wb, ws1, "Maktablar");
 
-    const ws2 = XLSX.utils.aoa_to_sheet([
-      ["Fan", "Tuman bo'yicha jami haftalik soat"],
-      ...agg.subjectList.map((r) => [r.subject, r.hours]),
-    ]);
-    ws2["!cols"] = [{ wch: 26 }, { wch: 28 }];
-    XLSX.utils.book_append_sheet(wb, ws2, "Fanlar");
+    const totalSubjHours = agg.subjectList.reduce((a, r) => a + r.hours, 0);
+    const body2 = agg.subjectList.map((r) => [r.subject, r.hours]);
+    body2.push(["JAMI", totalSubjHours]);
+    const ws2 = makeStyledSheet({
+      title: "📚 FANLAR BO'YICHA TUMAN SOATLARI",
+      subtitle: stamp,
+      header: ["Fan", "Tuman bo'yicha jami haftalik soat"],
+      body: body2,
+      widths: [28, 32],
+      align: ["left", "center"],
+      boldCols: [0],
+      theme: "teal",
+      totalLast: true,
+    });
+    XS.utils.book_append_sheet(wb, ws2, "Fanlar");
 
-    XLSX.writeFile(wb, "tuman_hisobot.xlsx");
+    XS.writeFile(wb, "tuman_hisobot.xlsx");
   }
 
   if (loading) {

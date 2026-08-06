@@ -8,6 +8,9 @@ import {
   ExcelDataPage, SetkaMatrix, JadvalViewer,
   TeacherHoursTable, exportSchoolExcel, buildAutoExcelData,
 } from "./districtExcel";
+import {
+  computeVacancy, VacancyReport, VacancyBadge, vacancySummaryText,
+} from "./VacancyAnalysis";
 import "./district.css";
 
 // =====================================================================
@@ -30,6 +33,7 @@ const NAV_SECTIONS = [
     title: "MAKTABLAR",
     items: [
       { id: "schools", icon: "🏫", label: "Maktablar" },
+      { id: "vacancy", icon: "💼", label: "Vakansiyalar" },
       { id: "excel",   icon: "📥", label: "Excel ma'lumotlar" },
     ],
   },
@@ -254,6 +258,7 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
   const [schools, setSchools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSchool, setSelectedSchool] = useState(null);
+  const [detailTab, setDetailTab] = useState("teachers");
 
   const hasDistrict = !!currentUser.districtId;
 
@@ -283,6 +288,12 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
     setPage(id);
     setSelectedSchool(null);
     setNavOpen(false);
+  }
+
+  // Maktab oynasini ochish — kerak bo'lsa aniq tab bilan (masalan "vacancy")
+  function openSchool(s, tab = "teachers") {
+    setDetailTab(tab);
+    setSelectedSchool(s);
   }
 
   const initials = (currentUser.name || currentUser.email || "TA").trim().charAt(0).toUpperCase();
@@ -371,19 +382,32 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
             />
           </div>
         ) : selectedSchool ? (
-          <SchoolDetail school={selectedSchool} onBack={() => setSelectedSchool(null)} addToast={addToast} />
+          <SchoolDetail
+            key={`${selectedSchool.id}:${detailTab}`}
+            school={selectedSchool}
+            initialTab={detailTab}
+            onBack={() => setSelectedSchool(null)}
+            addToast={addToast}
+          />
         ) : (
           <>
             {page === "dashboard" && (
-              <DashboardPage loading={loading} schools={schools} onOpenSchool={(s) => setSelectedSchool(s)} />
+              <DashboardPage loading={loading} schools={schools} onOpenSchool={(s) => openSchool(s)} />
             )}
             {page === "schools" && (
               <SchoolsPage
                 loading={loading}
                 schools={schools}
-                onOpenSchool={(s) => setSelectedSchool(s)}
+                onOpenSchool={(s, tab) => openSchool(s, tab)}
                 currentUser={currentUser}
                 addToast={addToast}
+              />
+            )}
+            {page === "vacancy" && (
+              <VacancyPage
+                loading={loading}
+                schools={schools}
+                onOpenSchool={(s) => openSchool(s, "vacancy")}
               />
             )}
             {page === "excel" && <ExcelDataPage schools={schools} addToast={addToast} districtId={currentUser.districtId} />}
@@ -411,7 +435,18 @@ function DashboardPage({ loading, schools, onOpenSchool }) {
     const teachers = schools.reduce((a, s) => a + s.teachersCount, 0);
     const classes = schools.reduce((a, s) => a + s.classesCount, 0);
     const lessons = schools.reduce((a, s) => a + s.lessonsCount, 0);
-    return { total, withSched, without: total - withSched, teachers, classes, lessons };
+
+    // Vakansiya statistikasi — tuman kesimida
+    let vacantHours = 0;
+    let needySchools = 0;
+    for (const s of schools) {
+      const v = computeVacancy(s.data);
+      if (!v.hasData) continue;
+      vacantHours += v.vacantTotal;
+      if (v.needy) needySchools++;
+    }
+
+    return { total, withSched, without: total - withSched, teachers, classes, lessons, vacantHours, needySchools };
   }, [schools]);
 
   const KPIS = [
@@ -421,6 +456,8 @@ function DashboardPage({ loading, schools, onOpenSchool }) {
     { icon: "👨‍🏫", label: "Jami o'qituvchilar",   value: stats.teachers,  bg: "rgba(99,102,241,.13)" },
     { icon: "🎓", label: "Jami sinflar",          value: stats.classes,   bg: "rgba(14,165,233,.13)" },
     { icon: "📚", label: "Haftalik jami darslar", value: stats.lessons,   bg: "rgba(168,85,247,.13)" },
+    { icon: "💼", label: "Vakant soatlar (tuman)", value: stats.vacantHours, bg: "rgba(239,68,68,.11)" },
+    { icon: "🆘", label: "Muhtoj maktablar",       value: stats.needySchools, bg: "rgba(239,68,68,.11)" },
   ];
 
   if (loading) {
@@ -539,6 +576,13 @@ function SchoolsPage({ loading, schools, onOpenSchool, currentUser, addToast }) 
   const [filter, setFilter] = useState("all"); // all | with | without
   const [resetFor, setResetFor] = useState(null); // parol tiklanayotgan maktab
 
+  // Har maktab uchun vakansiya natijasi (bir marta hisoblanadi)
+  const vacMap = useMemo(() => {
+    const m = {};
+    for (const s of schools) m[s.id] = computeVacancy(s.data);
+    return m;
+  }, [schools]);
+
   const q = query.trim().toLowerCase();
   const shown = schools.filter((s) => {
     if (filter === "with" && !s.hasSchedule) return false;
@@ -590,6 +634,7 @@ function SchoolsPage({ loading, schools, onOpenSchool, currentUser, addToast }) 
                 <th>Direktor</th>
                 <th>Obuna</th>
                 <th>Jadval holati</th>
+                <th>Vakansiya</th>
                 <th>O'qituvchilar</th>
                 <th>Sinflar</th>
                 <th>Oxirgi faollik</th>
@@ -597,43 +642,73 @@ function SchoolsPage({ loading, schools, onOpenSchool, currentUser, addToast }) 
               </tr>
             </thead>
             <tbody>
-              {shown.map((s) => (
-                <tr key={s.id}>
-                  <td>
-                    <b>{s.schoolName}</b>
-                    <div style={{ fontSize: 11.5, fontWeight: 800, color: "#6366f1" }}>{s.uid || "—"}</div>
-                  </td>
-                  <td>
-                    {s.name || "—"}
-                    <div style={{ fontSize: 12, color: "var(--da-text-2)" }}>{s.email}</div>
-                    {s.phone && <div style={{ fontSize: 12, color: "var(--da-text-2)" }}>📞 {s.phone}</div>}
-                  </td>
-                  <td><SubBadge school={s} /></td>
-                  <td>
-                    {s.hasSchedule
-                      ? <span className="da-badge" style={{ background: "#10b9811c", color: "#059669" }}>✓ Yaratilgan</span>
-                      : <span className="da-badge" style={{ background: "#f59e0b1c", color: "#b45309" }}>⏳ Yaratilmagan</span>}
-                  </td>
-                  <td>{s.teachersCount}</td>
-                  <td>{s.classesCount}</td>
-                  <td>{timeAgo(s.updatedAt)}</td>
-                  <td>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <button type="button" className="da-btn da-btn--primary da-btn--sm" onClick={() => onOpenSchool(s)}>
-                        👁 Ko'rish
-                      </button>
-                      <button
-                        type="button"
-                        className="da-btn da-btn--warning da-btn--sm"
-                        title="Vaqtinchalik parol o'rnatish"
-                        onClick={() => setResetFor(s)}
-                      >
-                        🔑 Parol
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {shown.map((s) => {
+                const v = vacMap[s.id];
+                return (
+                  <tr key={s.id}>
+                    <td>
+                      <b>{s.schoolName}</b>
+                      <div style={{ fontSize: 11.5, fontWeight: 800, color: "#6366f1" }}>{s.uid || "—"}</div>
+                    </td>
+                    <td>
+                      {s.name || "—"}
+                      <div style={{ fontSize: 12, color: "var(--da-text-2)" }}>{s.email}</div>
+                      {s.phone && <div style={{ fontSize: 12, color: "var(--da-text-2)" }}>📞 {s.phone}</div>}
+                    </td>
+                    <td><SubBadge school={s} /></td>
+                    <td>
+                      {s.hasSchedule
+                        ? <span className="da-badge" style={{ background: "#10b9811c", color: "#059669" }}>✓ Yaratilgan</span>
+                        : <span className="da-badge" style={{ background: "#f59e0b1c", color: "#b45309" }}>⏳ Yaratilmagan</span>}
+                    </td>
+                    <td>
+                      {v?.hasData ? (
+                        v.vacantTotal > 0 ? (
+                          <span
+                            className="da-badge"
+                            style={{ background: "#ef44441c", color: "#dc2626", cursor: "pointer" }}
+                            title={`Vakant fanlar: ${vacancySummaryText(v, 5)}`}
+                            onClick={() => onOpenSchool(s, "vacancy")}
+                          >
+                            💼 {v.vacantTotal} soat
+                          </span>
+                        ) : v.overloadTotal > 0 ? (
+                          <span
+                            className="da-badge"
+                            style={{ background: "#f59e0b1c", color: "#b45309", cursor: "pointer" }}
+                            title={`Ortiqcha yuklama: ${v.overloadTotal} soat`}
+                            onClick={() => onOpenSchool(s, "vacancy")}
+                          >
+                            ⚠️ +{v.overloadTotal}
+                          </span>
+                        ) : (
+                          <span className="da-badge" style={{ background: "#10b9811c", color: "#059669" }}>✓</span>
+                        )
+                      ) : (
+                        <span style={{ color: "var(--da-text-2)" }}>—</span>
+                      )}
+                    </td>
+                    <td>{s.teachersCount}</td>
+                    <td>{s.classesCount}</td>
+                    <td>{timeAgo(s.updatedAt)}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <button type="button" className="da-btn da-btn--primary da-btn--sm" onClick={() => onOpenSchool(s)}>
+                          👁 Ko'rish
+                        </button>
+                        <button
+                          type="button"
+                          className="da-btn da-btn--warning da-btn--sm"
+                          title="Vaqtinchalik parol o'rnatish"
+                          onClick={() => setResetFor(s)}
+                        >
+                          🔑 Parol
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -652,6 +727,205 @@ function SchoolsPage({ loading, schools, onOpenSchool, currentUser, addToast }) 
 }
 
 // =====================================================================
+//  💼 VAKANSIYALAR SAHIFASI — tuman kesimida
+//
+//  Har bir maktabning avtomatik sinxronlangan ma'lumotidan (classSubjects)
+//  vakant soatlar va ortiqcha yuklama hisoblanadi. Muhtoj maktablar
+//  alohida ajratib ko'rsatiladi va fanlar bo'yicha jamlanadi.
+// =====================================================================
+function VacancyPage({ loading, schools, onOpenSchool }) {
+  const [filter, setFilter] = useState("needy"); // needy | ok | nodata | all
+
+  const agg = useMemo(() => {
+    const rows = schools.map((s) => ({ s, vac: computeVacancy(s.data) }));
+    const withData = rows.filter((r) => r.vac.hasData);
+    const needy = withData.filter((r) => r.vac.needy);
+    const ok = withData.filter((r) => !r.vac.needy);
+    const nodata = rows.filter((r) => !r.vac.hasData);
+
+    const vacantHours = withData.reduce((a, r) => a + r.vac.vacantTotal, 0);
+    const overloadHours = withData.reduce((a, r) => a + r.vac.overloadTotal, 0);
+    const overloadTeachers = withData.reduce((a, r) => a + r.vac.overloaded.length, 0);
+
+    // Fanlar bo'yicha tuman jamlanmasi
+    const bySubject = new Map();
+    for (const r of withData) {
+      for (const sr of r.vac.vacantSubjects) {
+        if (!bySubject.has(sr.name)) bySubject.set(sr.name, { name: sr.name, hours: 0, schools: 0 });
+        const x = bySubject.get(sr.name);
+        x.hours += sr.vacant;
+        x.schools++;
+      }
+    }
+    const subjectList = [...bySubject.values()].sort((a, b) => b.hours - a.hours);
+
+    const sortNeedy = (arr) => [...arr].sort((a, b) =>
+      (b.vac.vacantTotal - a.vac.vacantTotal)
+      || (b.vac.overloadTotal - a.vac.overloadTotal)
+      || String(a.s.schoolName).localeCompare(String(b.s.schoolName), "uz")
+    );
+
+    return {
+      rows: sortNeedy(rows),
+      needy: sortNeedy(needy),
+      ok: sortNeedy(ok),
+      nodata,
+      withDataCount: withData.length,
+      vacantHours,
+      overloadHours,
+      overloadTeachers,
+      subjectList,
+    };
+  }, [schools]);
+
+  if (loading) {
+    return (
+      <>
+        <div className="da-kpis">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="da-skel" style={{ height: 82 }} />)}
+        </div>
+        <div className="da-skel" style={{ height: 320 }} />
+      </>
+    );
+  }
+
+  const KPIS = [
+    { icon: "🆘", label: "Muhtoj maktablar",            value: agg.needy.length,      bg: "rgba(239,68,68,.11)" },
+    { icon: "💼", label: "Jami vakant soat (tuman)",     value: agg.vacantHours,       bg: "rgba(239,68,68,.11)" },
+    { icon: "⚠️", label: "Ortiqcha yuklama (soat)",      value: agg.overloadHours,     bg: "rgba(245,158,11,.14)" },
+    { icon: "✅", label: "Ta'minlangan maktablar",       value: agg.ok.length,         bg: "rgba(16,185,129,.13)" },
+  ];
+
+  const FILTERS = [
+    { id: "needy",  label: `🆘 Muhtoj (${agg.needy.length})` },
+    { id: "ok",     label: `✅ Ta'minlangan (${agg.ok.length})` },
+    { id: "nodata", label: `⏳ Ma'lumot yo'q (${agg.nodata.length})` },
+    { id: "all",    label: `Hammasi (${schools.length})` },
+  ];
+
+  const shown = filter === "needy" ? agg.needy
+    : filter === "ok" ? agg.ok
+    : filter === "nodata" ? agg.nodata
+    : agg.rows;
+
+  const maxSubjHours = Math.max(1, ...agg.subjectList.map((r) => r.hours));
+
+  return (
+    <>
+      <div className="da-kpis">
+        {KPIS.map((k, i) => (
+          <div key={i} className="da-kpi" style={{ animationDelay: `${i * 45}ms` }}>
+            <div className="da-kpi__icon" style={{ background: k.bg }}>{k.icon}</div>
+            <div>
+              <div className="da-kpi__value">{k.value}</div>
+              <div className="da-kpi__label">{k.label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {agg.subjectList.length > 0 && (
+        <div className="da-card">
+          <div className="da-card__title">
+            📚 Fanlar bo'yicha vakant soatlar (tuman kesimida)
+          </div>
+          {agg.subjectList.map((r) => (
+            <div key={r.name} className="da-bar-row">
+              <div className="da-bar-name" title={r.name}>{r.name}</div>
+              <div className="da-bar-track">
+                <div
+                  className="da-bar-fill"
+                  style={{ width: `${(r.hours / maxSubjHours) * 100}%`, background: "linear-gradient(90deg,#ef4444,#f97316)" }}
+                />
+              </div>
+              <div className="da-bar-val">{r.hours} soat · {r.schools} maktab</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="da-card">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+          <div className="da-card__title" style={{ margin: 0 }}>🏫 Maktablar kesimida</div>
+          <div className="da-tabs" style={{ marginBottom: 0 }}>
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={`da-tab ${filter === f.id ? "da-tab--active" : ""}`}
+                onClick={() => setFilter(f.id)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {agg.withDataCount === 0 ? (
+          <Empty
+            icon="💼"
+            title="Vakansiya tahlili uchun ma'lumot yo'q"
+            text={`Maktablar o'z tizimida "Sinf fanlari" bo'limini to'ldirsa (fanlarga soat va o'qituvchi biriktirsa), vakansiyalar bu yerda avtomatik ko'rinadi.`}
+          />
+        ) : shown.length === 0 ? (
+          <Empty icon="✅" title="Bu bo'limda maktab yo'q" text="Boshqa filtrlarni tekshirib ko'ring." />
+        ) : (
+          <div className="da-tablewrap">
+            <table className="da-table">
+              <thead>
+                <tr>
+                  <th>Maktab</th>
+                  <th>Holat</th>
+                  <th>Vakant soat</th>
+                  <th>Vakant fanlar</th>
+                  <th>Ortiqcha yuklama</th>
+                  <th>Oxirgi faollik</th>
+                  <th>Amallar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map(({ s, vac }) => (
+                  <tr key={s.id} className="da-row-click" onClick={() => onOpenSchool(s)}>
+                    <td>
+                      <b>{s.schoolName}</b>
+                      <div style={{ fontSize: 12, color: "var(--da-text-2)" }}>{s.email}</div>
+                    </td>
+                    <td><VacancyBadge vac={vac} /></td>
+                    <td style={{ textAlign: "center" }}>
+                      {vac.vacantTotal > 0
+                        ? <b style={{ color: "#dc2626" }}>{vac.vacantTotal}</b>
+                        : <span style={{ color: "var(--da-text-2)" }}>—</span>}
+                    </td>
+                    <td style={{ maxWidth: 260, whiteSpace: "normal", fontSize: 12.5 }}>
+                      {vacancySummaryText(vac) || <span style={{ color: "var(--da-text-2)" }}>—</span>}
+                    </td>
+                    <td style={{ textAlign: "center" }}>
+                      {vac.overloadTotal > 0
+                        ? <span style={{ color: "#b45309", fontWeight: 800 }}>+{vac.overloadTotal} soat · {vac.overloaded.length} ustoz</span>
+                        : <span style={{ color: "var(--da-text-2)" }}>—</span>}
+                    </td>
+                    <td>{timeAgo(s.updatedAt)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="da-btn da-btn--primary da-btn--sm"
+                        onClick={(e) => { e.stopPropagation(); onOpenSchool(s); }}
+                      >
+                        👁 Batafsil
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// =====================================================================
 //  MAKTAB OYNASI (faqat ko'rish)
 //
 //  Ikki xil manba ko'rsatiladi:
@@ -661,8 +935,8 @@ function SchoolsPage({ loading, schools, onOpenSchool, currentUser, addToast }) 
 //       district_excel_data): dars jadvali, sinf-fan soatlari (setka)
 //       va o'qituvchi haftalik soatlari
 // =====================================================================
-function SchoolDetail({ school, onBack, addToast }) {
-  const [tab, setTab] = useState("teachers");
+function SchoolDetail({ school, onBack, addToast, initialTab = "teachers" }) {
+  const [tab, setTab] = useState(initialTab);
   const [excel, setExcel] = useState(null);       // { teachers, setka, jadval }
   const [excelLoading, setExcelLoading] = useState(true);
 
@@ -690,6 +964,9 @@ function SchoolDetail({ school, onBack, addToast }) {
   // Maktabning avtomatik sinxronlangan ma'lumoti (cloudSync orqali kelgan
   // haqiqiy jadval) — ustuvor manba. Excel yuklama zaxira sifatida qoladi.
   const auto = useMemo(() => buildAutoExcelData(d), [d]);
+
+  // 💼 Vakansiya tahlili — sinf fanlari (classSubjects) asosida
+  const vac = useMemo(() => computeVacancy(d), [d]);
 
   const jadvalData = auto?.jadval || excel?.jadval || null;
   const setkaData = auto?.setka || excel?.setka || null;
@@ -763,6 +1040,7 @@ function SchoolDetail({ school, onBack, addToast }) {
     { id: "jadval",   label: "📅 Dars jadvali" },
     { id: "setka",    label: "🕐 Sinf-fan soatlari" },
     { id: "hours",    label: "⏱ O'qituvchi soatlari" },
+    { id: "vacancy",  label: vac?.vacantTotal > 0 ? `💼 Vakansiya (${vac.vacantTotal})` : "💼 Vakansiya" },
   ];
 
   function nameOf(x) {
@@ -790,6 +1068,16 @@ function SchoolDetail({ school, onBack, addToast }) {
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <SubBadge school={school} />
+            {vac?.hasData && vac.needy && (
+              <span
+                className="da-badge"
+                style={{ background: "#ef44441c", color: "#dc2626", cursor: "pointer" }}
+                title="Vakansiya tahlilini ochish"
+                onClick={() => setTab("vacancy")}
+              >
+                🆘 Muhtoj{vac.vacantTotal > 0 ? ` · ${vac.vacantTotal} soat vakant` : ""}
+              </span>
+            )}
             {jadvalRows > 0 && (
               <span className="da-badge" style={{ background: "#10b9811c", color: "#059669" }}>
                 {isAutoJadval ? "🔄 Jadval sinxronlangan" : "📥 Jadval (Excel)"}
@@ -824,6 +1112,7 @@ function SchoolDetail({ school, onBack, addToast }) {
             { icon: "👨‍🏫", label: "O'qituvchilar",             value: stats.teachers || "—", bg: "rgba(99,102,241,.13)" },
             { icon: "🚪", label: "Xonalar (jadvalda)",         value: stats.rooms || "—", bg: "rgba(37,99,235,.13)" },
             { icon: "🕐", label: "Setka jami soat/hafta",      value: stats.setkaHours || "—", bg: "rgba(16,185,129,.13)" },
+            { icon: "💼", label: "Vakant soatlar",             value: vac?.hasData ? (vac.vacantTotal || "0") : "—", bg: "rgba(239,68,68,.11)" },
           ].map((k, i) => (
             <div key={i} className="da-kpi" style={{ animationDelay: `${i * 45}ms` }}>
               <div className="da-kpi__icon" style={{ background: k.bg }}>{k.icon}</div>
@@ -977,6 +1266,21 @@ function SchoolDetail({ school, onBack, addToast }) {
               icon="⏱"
               title="O'qituvchi soatlari uchun ma'lumot yo'q"
               text={`Maktab o'qituvchilar va jadvalini kiritsa avtomatik ko'rinadi.`}
+            />
+          )
+        )}
+
+        {tab === "vacancy" && (
+          vac?.hasData ? (
+            <>
+              <SourceNote isAuto={true} />
+              <VacancyReport data={vac} />
+            </>
+          ) : (
+            <Empty
+              icon="💼"
+              title="Vakansiya tahlili uchun ma'lumot yo'q"
+              text={`Maktab o'z tizimida "Sinf fanlari" bo'limini to'ldirsa (fanlarga haftalik soat va o'qituvchi biriktirsa), vakant soatlar va ortiqcha yuklama shu yerda avtomatik ko'rinadi.`}
             />
           )
         )}

@@ -130,11 +130,11 @@ export default function TeacherReplacePage({
     if (!setSchedule || !result?.schedule) return;
     setSchedule(result.schedule);
     const s = result.summary || {};
-    const moved = (s.moved || 0) + (s.ejected || 0);
+    const swapped = s.swapped || 0;
     if (s.failed > 0) {
-      toast?.(`${s.inPlace + moved} dars ko'chirildi, ${s.failed} tasi joylashmadi`, "warning");
+      toast?.(`${(s.inPlace || 0) + swapped} dars o'tkazildi, ${s.failed} tasi eski ustozda qoldi`, "warning");
     } else {
-      toast?.(`O'qituvchi almashtirildi ✓ (${s.inPlace} joyida, ${moved} surildi)`, "success");
+      toast?.(`O'qituvchi almashtirildi ✓ (${s.inPlace} joyida, ${swapped} o'rin almashdi)`, "success");
     }
     // qayta boshlash
     setResult(null);
@@ -246,8 +246,7 @@ export default function TeacherReplacePage({
         .tr-change:hover{border-color:var(--card-border,#e2e8f0);}
         .tr-change-icon{flex-shrink:0;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;}
         .tr-change-icon.inplace{background:#dcfce7;color:#166534;}
-        .tr-change-icon.moved{background:#dbeafe;color:#1e40af;}
-        .tr-change-icon.ejected{background:#fef9c3;color:#854d0e;}
+        .tr-change-icon.swapped{background:#dbeafe;color:#1e40af;}
         .tr-change b{white-space:nowrap;}
         .tr-change .tr-where{color:var(--text-secondary,#64748b);font-size:13px;}
         .tr-sub{font-size:13px;font-weight:800;color:var(--text-secondary,#475569);margin:18px 0 8px;text-transform:uppercase;letter-spacing:.3px;}
@@ -275,7 +274,7 @@ export default function TeacherReplacePage({
           <div className="tr-hero-badge">🔄</div>
           <div>
             <h1>O'qituvchini almashtirish</h1>
-            <p>Ketgan o'qituvchining darslarini yangi o'qituvchiga o'tkazadi. Butun jadval qayta tuzilmaydi — darslar iloji boricha joyida qoladi, faqat zarur bo'lganda suriladi.</p>
+            <p>Ketgan o'qituvchining darslarini yangi o'qituvchiga o'tkazadi. Yangi ustoz band bo'lgan soatlarda dars sinfning boshqa darsi bilan o'rin almashtiriladi — jadvalda bo'sh katak qolmaydi.</p>
           </div>
         </div>
       </div>
@@ -363,9 +362,8 @@ export default function TeacherReplacePage({
             <div className="tr-summary-title">Natija: {summary.totalLessons} ta dars ko'chiriladi</div>
             <div className="tr-stats">
               <span className="tr-stat" style={{ background: "#dcfce7", color: "#166534" }}>✓ {summary.inPlace} o'z joyida</span>
-              {summary.moved > 0 && <span className="tr-stat" style={{ background: "#dbeafe", color: "#1e40af" }}>→ {summary.moved} surildi</span>}
-              {summary.ejected > 0 && <span className="tr-stat" style={{ background: "#fef9c3", color: "#854d0e" }}>⇄ {summary.ejected} almashtirildi</span>}
-              {summary.failed > 0 && <span className="tr-stat" style={{ background: "#fee2e2", color: "#991b1b" }}>✕ {summary.failed} joylashmadi</span>}
+              {summary.swapped > 0 && <span className="tr-stat" style={{ background: "#dbeafe", color: "#1e40af" }}>⇄ {summary.swapped} o'rin almashdi</span>}
+              {summary.failed > 0 && <span className="tr-stat" style={{ background: "#fee2e2", color: "#991b1b" }}>✕ {summary.failed} eski ustozda qoldi</span>}
             </div>
           </div>
 
@@ -375,15 +373,14 @@ export default function TeacherReplacePage({
               <div className="tr-changes">
                 {result.changes.map((c, i) => {
                   const isInPlace = c.kind === "inPlace";
-                  const isMoved = c.kind === "moved";
                   const label = `${clsNames(c.classIds)} ${subjName(c.subjectId)}`;
                   const fromTxt = `${c.from.day} ${slotNum(c.from.tsId)}-dars`;
                   const toTxt = `${c.to.day} ${slotNum(c.to.tsId)}-dars`;
                   return (
                     <div key={i} className="tr-change">
-                      <span className={`tr-change-icon ${isInPlace ? "inplace" : isMoved ? "moved" : "ejected"}`}>{isInPlace ? "✓" : isMoved ? "→" : "⇄"}</span>
+                      <span className={`tr-change-icon ${isInPlace ? "inplace" : "swapped"}`}>{isInPlace ? "✓" : "⇄"}</span>
                       <b>{label}</b>
-                      <span className="tr-where">{isInPlace ? `${toTxt} (joyida qoldi)` : `${fromTxt} → ${toTxt}`}</span>
+                      <span className="tr-where">{isInPlace ? `${toTxt} (joyida qoldi)` : `${fromTxt} ⇄ ${toTxt} (o'rin almashdi)`}</span>
                     </div>
                   );
                 })}
@@ -393,7 +390,7 @@ export default function TeacherReplacePage({
 
           {result.movedOthers.length > 0 && (
             <>
-              <div className="tr-sub">Joy ochish uchun surilgan boshqa darslar:</div>
+              <div className="tr-sub">O'rin almashgan darslar (bo'sh katak qolmasligi uchun):</div>
               <div className="tr-others">
                 {result.movedOthers.map((m, i) => (
                   <div key={i}>• {clsNames(m.classIds)} {subjName(m.subjectId)} ({teacherName(m.teacherId)}): {m.from.day} {slotNum(m.from.tsId)}-dars → {m.to.day} {slotNum(m.to.tsId)}-dars</div>
@@ -404,7 +401,7 @@ export default function TeacherReplacePage({
 
           {result.failed.length > 0 && (
             <div className="tr-fail">
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>Joylashmagan darslar (yangi ustoz uchun bo'sh vaqt topilmadi):</div>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>O'tkazib bo'lmagan darslar (mos o'rin almashuv topilmadi — eski ustoz nomida joyida qoladi):</div>
               {result.failed.map((f, i) => (
                 <div key={i}>• {clsNames(f.classIds)} {subjName(f.subjectId)} — {f.at.day} {slotNum(f.at.tsId)}-dars</div>
               ))}
@@ -423,7 +420,7 @@ export default function TeacherReplacePage({
           <div className="tr-step">
             <div className="tr-step-num">1</div>
             <h4>Ketgan o'qituvchini tanlang</h4>
-            <p>Maktabдан ketgan yoki darslari boshqaga o'tishi kerak bo'lgan o'qituvchini ro'yxatdan tanlang.</p>
+            <p>Maktabdan ketgan yoki darslari boshqaga o'tishi kerak bo'lgan o'qituvchini ro'yxatdan tanlang.</p>
           </div>
           <div className="tr-step">
             <div className="tr-step-num">2</div>
