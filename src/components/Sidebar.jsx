@@ -149,7 +149,7 @@ export default function Sidebar({
           Chiqish
         </button>
 
-        <div className="sidebar-version">v2.0 · Demo School</div>
+        <div className="sidebar-version">v2.0 · By Turon maktab </div>
       </div>
     </aside>
   );
