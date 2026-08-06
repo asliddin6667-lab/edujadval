@@ -6,19 +6,25 @@
 //  - District Admin: o'z tumanidagi maktablar, jadval tekshiruvi,
 //    bildirishnoma yuborish, audit log
 //
-//  YANGI: syncAllDistricts() — O'zbekistonning BARCHA viloyat va
-//  tumanlarini uzRegions.js ro'yxatidan bazaga avtomatik qo'shadi.
-//  Nomlar aynan bir xil bo'lgani uchun ro'yxatdan o'tgan maktablar
-//  o'z tumaniga xatosiz avtomatik bog'lanadi.
+//  syncAllDistricts() — O'zbekistonning BARCHA viloyat va tumanlarini
+//  uzRegions.js ro'yxatidan bazaga avtomatik qo'shadi. Nomlar aynan
+//  bir xil bo'lgani uchun ro'yxatdan o'tgan maktablar o'z tumaniga
+//  xatosiz avtomatik bog'lanadi.
 //
-//  YANGI: resetSchoolPassword() — tuman admini / superadmin maktabga
-//  vaqtinchalik parol o'rnatadi (Edge Function: admin-reset-password).
+//  PAROL TIKLASH: Edge Function "quick-handler" nomi bilan deploy
+//  qilingan — resetSchoolPassword() va adminResetPassword() ikkalasi
+//  ham aynan shu funksiyani chaqiradi.
 //
 //  XAVFSIZLIK: barcha cheklovlar Supabase RLS darajasida — bu fayl
 //  faqat so'rov yuboradi, ruxsatni server tekshiradi.
 // =====================================================================
 import { supabase } from "./supabaseClient";
 import { UZ_REGIONS, districtsOf } from "../utils/uzRegions";
+
+// Edge Function nomi. Supabase Dashboard'da funksiya "quick-handler"
+// nomi bilan deploy qilingan. Agar keyinchalik "admin-reset-password"
+// nomli alohida funksiya yaratsangiz, shu qatorni o'zgartirish kifoya.
+const RESET_PASSWORD_FN = "quick-handler";
 
 // ---------------------------------------------------------------------
 //  TUMANLAR (superadmin boshqaradi, RLS himoya qiladi)
@@ -306,13 +312,14 @@ export async function logAction({ user, action, targetType, targetId, details })
   }
 }
 
-// ---------------------------------------------------------------------
-//  PAROL TIKLASH (Edge Function: admin-reset-password)
+// =====================================================================
+//  PAROL TIKLASH (Edge Function: quick-handler)
+//
 //  Tuman admini o'z tumanidagi maktabga, superadmin istalgan
 //  foydalanuvchiga (superadmindan tashqari) vaqtinchalik parol
 //  o'rnatadi. Maktab keyingi kirishida parolni majburiy almashtiradi.
 //  Ruxsat tekshiruvi to'liq serverda (Edge Function) bajariladi.
-// ---------------------------------------------------------------------
+// =====================================================================
 
 // Vaqtinchalik parol generatori: "EDU-" + 8 belgi.
 // Adashtiruvchi belgilar yo'q (0/O, 1/l/I ishlatilmaydi).
@@ -327,56 +334,17 @@ export function generateTempPassword() {
   return "EDU-" + out;
 }
 
-// Maktab foydalanuvchisiga vaqtinchalik parol o'rnatish.
-// Muvaffaqiyatda { ok: true, warning? } qaytaradi, xatoda Error tashlaydi.
-export async function resetSchoolPassword(targetUserId, newPassword) {
-  if (!targetUserId) throw new Error("Foydalanuvchi tanlanmagan");
-  if (!newPassword || newPassword.length < 8) {
-    throw new Error("Vaqtinchalik parol kamida 8 belgidan iborat bo'lishi kerak");
-  }
-
-  const { data, error } = await supabase.functions.invoke(
-    "admin-reset-password",
-    { body: { target_user_id: targetUserId, new_password: newPassword } }
-  );
-
-  if (error) {
-    // Edge Function 4xx/5xx qaytarsa aniq xabarni chiqarib olamiz
-    let msg = error.message || "Parolni tiklashda noma'lum xatolik";
-    try {
-      const ctx = await error.context?.json?.();
-      if (ctx?.error) msg = ctx.error;
-    } catch {
-      /* jim */
-    }
-    throw new Error(msg);
-  }
-  if (data?.error) throw new Error(data.error);
-  return data; // { ok: true } yoki { ok: true, warning: "..." }
-}// =====================================================================
-//  QO'SHIMCHA: districtService.js faylining ENG OXIRIGA qo'shing
-//
-//  Eslatma: bu fayl ichida allaqachon `supabase` klienti import
-//  qilingan bo'lishi kerak (boshqa funksiyalar undan foydalanadi).
-//  Agar klient boshqa nom bilan import qilingan bo'lsa, shu nomga
-//  moslang.
-// =====================================================================
-
-// Edge Function nomi. Supabase Dashboard'da funksiya "quick-handler"
-// nomi bilan deploy qilingan. Agar keyinchalik "admin-reset-password"
-// nomli alohida funksiya yaratsangiz, shu qatorni o'zgartirish kifoya.
-const RESET_PASSWORD_FN = "quick-handler";
-
-/**
- * Tuman admini / superadmin maktab foydalanuvchisiga vaqtinchalik
- * parol o'rnatadi (Edge Function orqali, service key serverda qoladi).
- *
- * @param {string} targetUserId - maktab profilining id'si (profiles.id)
- * @param {string} newPassword  - vaqtinchalik parol (kamida 8 belgi)
- */
-export async function adminResetPassword(targetUserId, newPassword) {
+// Ichki yordamchi: quick-handler'ni chaqirib, xatoni aniq xabar
+// bilan tashlaydi. Ikkala nom uslubida ham yuboriladi — Edge Function
+// snake_case yoki camelCase qaysi birini o'qisa ham ishlayveradi.
+async function invokeResetPassword(targetUserId, newPassword) {
   const { data, error } = await supabase.functions.invoke(RESET_PASSWORD_FN, {
-    body: { target_user_id: targetUserId, new_password: newPassword },
+    body: {
+      target_user_id: targetUserId,
+      new_password: newPassword,
+      targetUserId,
+      newPassword,
+    },
   });
 
   if (error) {
@@ -392,9 +360,39 @@ export async function adminResetPassword(targetUserId, newPassword) {
     } catch {
       /* jim */
     }
+    if (/fetch|network/i.test(msg)) {
+      msg = "Server bilan aloqa yo'q. Internetni tekshiring.";
+    }
     throw new Error(msg);
   }
 
   if (data?.error) throw new Error(data.error);
   return data; // { ok: true } yoki { ok: true, warning: "..." }
+}
+
+/**
+ * Maktab foydalanuvchisiga vaqtinchalik parol o'rnatish.
+ * Muvaffaqiyatda { ok: true, warning? } qaytaradi, xatoda Error tashlaydi.
+ */
+export async function resetSchoolPassword(targetUserId, newPassword) {
+  if (!targetUserId) throw new Error("Foydalanuvchi tanlanmagan");
+  if (!newPassword || newPassword.length < 8) {
+    throw new Error("Vaqtinchalik parol kamida 8 belgidan iborat bo'lishi kerak");
+  }
+  return invokeResetPassword(targetUserId, newPassword);
+}
+
+/**
+ * Tuman admini / superadmin uchun umumiy nom bilan eksport —
+ * eski importlar buzilmasligi uchun saqlab qolindi.
+ *
+ * @param {string} targetUserId - maktab profilining id'si (profiles.id)
+ * @param {string} newPassword  - vaqtinchalik parol (kamida 8 belgi)
+ */
+export async function adminResetPassword(targetUserId, newPassword) {
+  if (!targetUserId) throw new Error("Foydalanuvchi tanlanmagan");
+  if (!newPassword || newPassword.length < 8) {
+    throw new Error("Vaqtinchalik parol kamida 8 belgidan iborat bo'lishi kerak");
+  }
+  return invokeResetPassword(targetUserId, newPassword);
 }

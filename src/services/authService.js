@@ -10,6 +10,13 @@
 //  - DISTRICT ADMIN (v3): profilda district_id va must_change_password
 //    maydonlari o'qiladi — tuman admini paneli uchun.
 //
+//  TUZATISH (v3.1):
+//  - adminResetPassword endi "quick-handler" Edge Function'ini chaqiradi
+//    (deploy qilingan haqiqiy nom). supabase.functions.invoke ishlatiladi.
+//  - supabase.rpc(...).catch(...) XATO EDI: rpc() to'liq Promise emas,
+//    unda .catch() metodi yo'q ("Oa.rpc(...).catch is not a function").
+//    Endi await + { error } tekshiruvi bilan yozilgan.
+//
 //  Sessiya kesh: profil ma'lumotlari localStorage'da keshlanadi, shu
 //  sababli getCurrentUser() va checkSubscription() SINXRON qolgan —
 //  App.jsx va boshqa sahifalar o'zgarishsiz ishlayveradi.
@@ -23,6 +30,11 @@ import {
 } from "./supabaseClient";
 
 const SESSION_KEY = "auth_current_user";
+
+// Edge Function nomi. Supabase Dashboard'da funksiya "quick-handler"
+// nomi bilan deploy qilingan. Keyinchalik alohida "admin-reset-password"
+// funksiyasi yaratsangiz, faqat shu qatorni o'zgartirasiz.
+const RESET_PASSWORD_FN = "quick-handler";
 
 // Foydalanuvchi ko'radigan unikal ID: EDU-XXXXXX
 function genUid() {
@@ -106,7 +118,8 @@ export function setCurrentUser(user) {
 
 export function logout() {
   removeData(SESSION_KEY);
-  // Supabase sessiyasini ham yopamiz (kutmasdan — UI bloklanmasin)
+  // Supabase sessiyasini ham yopamiz (kutmasdan — UI bloklanmasin).
+  // signOut() haqiqiy Promise qaytaradi, shuning uchun .catch() joiz.
   supabase.auth.signOut().catch(() => {});
 }
 
@@ -481,47 +494,64 @@ export async function adminCreateUser({ name, email, password, schoolName, role 
 // =====================================================================
 //  PAROLNI TIKLASH — 2-YO'L: SUPERADMIN TO'G'RIDAN-TO'G'RI O'RNATADI
 //
-//  Bu Edge Function orqali ishlaydi, chunki parolni boshqa
-//  foydalanuvchiga o'rnatish uchun service_role kaliti kerak —
-//  uni brauzerga qo'yish MUMKIN EMAS.
+//  Edge Function orqali ishlaydi, chunki parolni boshqa foydalanuvchiga
+//  o'rnatish uchun service_role kaliti kerak — uni brauzerga qo'yish
+//  MUMKIN EMAS. Funksiya "quick-handler" nomi bilan deploy qilingan.
 //
-//  Deploy: supabase functions deploy admin-reset-password
+//  TUZATISH: avvalgi versiyada
+//    supabase.rpc(...).catch(() => {})
+//  yozilgan edi — rpc() qaytaradigan obyektda .catch() yo'q, shuning
+//  uchun "Oa.rpc(...).catch is not a function" xatosi chiqardi.
 // =====================================================================
 export async function adminResetPassword(targetUserId, newPassword) {
   if (!newPassword || newPassword.length < 6) {
     throw new Error("Parol kamida 6 ta belgi bo'lsin");
   }
 
-  const { data: sess } = await supabase.auth.getSession();
-  const token = sess?.session?.access_token;
-  if (!token) throw new Error("Sessiya topilmadi. Qaytadan kiring.");
+  // Ikkala nom uslubida ham yuboramiz — Edge Function snake_case
+  // (target_user_id) yoki camelCase (targetUserId) qaysi birini
+  // o'qisa ham ishlayveradi.
+  const { data, error } = await supabase.functions.invoke(RESET_PASSWORD_FN, {
+    body: {
+      target_user_id: targetUserId,
+      new_password: newPassword,
+      targetUserId,
+      newPassword,
+    },
+  });
 
-  let res;
-  try {
-    res = await fetch(`${SUPABASE_FN_URL}/admin-reset-password`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        apikey: ANON_KEY,
-      },
-      body: JSON.stringify({ targetUserId, newPassword }),
-    });
-  } catch {
-    throw new Error("Server bilan aloqa yo'q. Internetni tekshiring.");
+  if (error) {
+    // Edge Function 4xx/5xx qaytarsa, javob tanasidagi aniq xabarni
+    // chiqarib olishga harakat qilamiz
+    let msg = error.message || "Parol tiklashda xatolik";
+    try {
+      const ctx = error.context;
+      if (ctx && typeof ctx.json === "function") {
+        const body = await ctx.json();
+        if (body?.error) msg = body.error;
+      }
+    } catch {
+      /* jim */
+    }
+    if (/fetch|network/i.test(msg)) {
+      msg = "Server bilan aloqa yo'q. Internetni tekshiring.";
+    }
+    throw new Error(msg);
   }
-
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(body.error || `Xatolik (${res.status})`);
-  }
+  if (data?.error) throw new Error(data.error);
 
   // Vaqtinchalik parol — foydalanuvchi birinchi kirishda YANGI parol
   // o'rnatishi majburiy bo'ladi. Bayroq yozilmasa ham parol allaqachon
-  // o'rnatilgan, shuning uchun xatoni yutamiz.
-  await supabase
-    .rpc("admin_require_password_change", { target: targetUserId })
-    .catch(() => {});
+  // o'rnatilgan, shuning uchun xatoni yutamiz (faqat konsolga yozamiz).
+  try {
+    const { error: flagErr } = await supabase.rpc(
+      "admin_require_password_change",
+      { target: targetUserId }
+    );
+    if (flagErr) console.warn("must_change_password yozilmadi:", flagErr.message);
+  } catch (e) {
+    console.warn("must_change_password yozilmadi:", e?.message);
+  }
 
   return true;
 }
