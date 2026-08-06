@@ -1,12 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import {
-  fetchMyDistrictInfo, fetchDistrictSchools, fetchSubmissions,
-  reviewSubmission, sendNotification, fetchSentNotifications,
-  fetchAuditLog, logAction, adminResetPassword,
+  fetchMyDistrictInfo, fetchDistrictSchools,
+  logAction, adminResetPassword,
 } from "../services/districtService";
 import { fetchExcelStore } from "../services/districtExcelService";
 import {
-  ExcelDataPage, ReportsPage, SetkaMatrix, JadvalViewer,
+  ExcelDataPage, SetkaMatrix, JadvalViewer,
   TeacherHoursTable, exportSchoolExcel, buildAutoExcelData,
 } from "./districtExcel";
 import "./district.css";
@@ -15,39 +14,34 @@ import "./district.css";
 //  DISTRICT ADMIN (TUMAN ADMINI) PANELI
 //
 //  Tuman admini FAQAT o'z tumanidagi maktablarni ko'radi (RLS).
-//  Ma'lumotlarni o'zgartira olmaydi — faqat ko'rish, tekshirish,
-//  tasdiqlash/qaytarish, bildirishnoma yuborish va zarur bo'lganda
-//  maktab paroliga vaqtinchalik parol o'rnatish.
+//  Ma'lumotlarni o'zgartira olmaydi — faqat ko'rish, Excel eksport
+//  va zarur bo'lganda maktab paroliga vaqtinchalik parol o'rnatish.
 // =====================================================================
 
-const NAV = [
-  { id: "dashboard",     icon: "📊", label: "Dashboard" },
-  { id: "schools",       icon: "🏫", label: "Maktablar" },
-  { id: "review",        icon: "⏳", label: "Tekshiruvdagi jadvallar" },
-  { id: "approved",      icon: "✅", label: "Tasdiqlangan jadvallar" },
-  { id: "reports",       icon: "📈", label: "Hisobotlar" },
-  { id: "excel",         icon: "📥", label: "Excel ma'lumotlar" },
-  { id: "notifications", icon: "🔔", label: "Bildirishnomalar" },
-  { id: "audit",         icon: "🧾", label: "Audit log" },
-  { id: "profile",       icon: "👤", label: "Profil" },
+// Menyu — bo'limlarga ajratilgan holda, chiroyli tartibda
+const NAV_SECTIONS = [
+  {
+    title: "ASOSIY",
+    items: [
+      { id: "dashboard", icon: "📊", label: "Dashboard" },
+    ],
+  },
+  {
+    title: "MAKTABLAR",
+    items: [
+      { id: "schools", icon: "🏫", label: "Maktablar" },
+      { id: "excel",   icon: "📥", label: "Excel ma'lumotlar" },
+    ],
+  },
+  {
+    title: "TIZIM",
+    items: [
+      { id: "profile", icon: "👤", label: "Profil" },
+    ],
+  },
 ];
 
-const STATUS_META = {
-  draft:     { label: "Qoralama",       color: "#64748b" },
-  submitted: { label: "Yuborilgan",     color: "#2563eb" },
-  reviewing: { label: "Tekshirilmoqda", color: "#f59e0b" },
-  returned:  { label: "Qaytarilgan",    color: "#ef4444" },
-  approved:  { label: "Tasdiqlangan",   color: "#10b981" },
-  archived:  { label: "Arxivlangan",    color: "#6b7280" },
-};
-
-const NOTIF_TYPES = [
-  { value: "info",        label: "ℹ️ Eslatma" },
-  { value: "warning",     label: "⚠️ Ogohlantirish" },
-  { value: "error",       label: "❌ Xatolik" },
-  { value: "news",        label: "📰 Yangilik" },
-  { value: "maintenance", label: "🛠 Texnik ishlar" },
-];
+const NAV_FLAT = NAV_SECTIONS.flatMap((s) => s.items);
 
 function fmtDate(ts) {
   if (!ts) return "—";
@@ -80,15 +74,6 @@ function genTempPassword(len = 10) {
   crypto.getRandomValues(rnd);
   for (let i = 0; i < len; i++) out += chars[rnd[i] % chars.length];
   return out;
-}
-
-function StatusBadge({ status }) {
-  const m = STATUS_META[status] || { label: status, color: "#64748b" };
-  return (
-    <span className="da-badge" style={{ background: `${m.color}1c`, color: m.color }}>
-      ● {m.label}
-    </span>
-  );
 }
 
 function SubBadge({ school }) {
@@ -267,7 +252,6 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
 
   const [district, setDistrict] = useState(null);
   const [schools, setSchools] = useState([]);
-  const [subs, setSubs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSchool, setSelectedSchool] = useState(null);
 
@@ -277,14 +261,12 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
     if (!hasDistrict) { setLoading(false); return; }
     setLoading(true);
     try {
-      const [d, sc, sb] = await Promise.all([
+      const [d, sc] = await Promise.all([
         fetchMyDistrictInfo(currentUser.districtId),
         fetchDistrictSchools(),
-        fetchSubmissions(),
       ]);
       setDistrict(d);
       setSchools(sc);
-      setSubs(sb);
     } catch (e) {
       addToast(e.message, "warning");
     } finally {
@@ -296,17 +278,6 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const pendingCount = useMemo(
-    () => subs.filter((s) => s.status === "submitted" || s.status === "reviewing").length,
-    [subs]
-  );
-
-  const schoolById = useMemo(() => {
-    const m = new Map();
-    for (const s of schools) m.set(s.id, s);
-    return m;
-  }, [schools]);
 
   function goto(id) {
     setPage(id);
@@ -333,44 +304,21 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
         <div className="da-sidebar__rolebar">🏛 TUMAN ADMINI</div>
 
         <nav className="da-nav">
-          <div className="da-nav__section">ASOSIY</div>
-          {NAV.slice(0, 1).map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`da-nav__item ${page === item.id ? "da-nav__item--active" : ""}`}
-              onClick={() => goto(item.id)}
-            >
-              <span className="da-nav__icon">{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
-          <div className="da-nav__section">NAZORAT</div>
-          {NAV.slice(1, 6).map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`da-nav__item ${page === item.id ? "da-nav__item--active" : ""}`}
-              onClick={() => goto(item.id)}
-            >
-              <span className="da-nav__icon">{item.icon}</span>
-              {item.label}
-              {item.id === "review" && pendingCount > 0 && (
-                <span className="da-nav__badge">{pendingCount}</span>
-              )}
-            </button>
-          ))}
-          <div className="da-nav__section">TIZIM</div>
-          {NAV.slice(6).map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`da-nav__item ${page === item.id ? "da-nav__item--active" : ""}`}
-              onClick={() => goto(item.id)}
-            >
-              <span className="da-nav__icon">{item.icon}</span>
-              {item.label}
-            </button>
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.title}>
+              <div className="da-nav__section">{section.title}</div>
+              {section.items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`da-nav__item ${page === item.id ? "da-nav__item--active" : ""}`}
+                  onClick={() => goto(item.id)}
+                >
+                  <span className="da-nav__icon">{item.icon}</span>
+                  {item.label}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
 
@@ -393,7 +341,7 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
         <div className="da-topbar">
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <div className="da-topbar__title">
-              {NAV.find((n) => n.id === page)?.label || "Dashboard"}
+              {NAV_FLAT.find((n) => n.id === page)?.label || "Dashboard"}
             </div>
             {district && (
               <span className="da-topbar__district">
@@ -427,7 +375,7 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
         ) : (
           <>
             {page === "dashboard" && (
-              <DashboardPage loading={loading} schools={schools} subs={subs} onOpenSchool={(s) => setSelectedSchool(s)} />
+              <DashboardPage loading={loading} schools={schools} onOpenSchool={(s) => setSelectedSchool(s)} />
             )}
             {page === "schools" && (
               <SchoolsPage
@@ -438,32 +386,7 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
                 addToast={addToast}
               />
             )}
-            {page === "review" && (
-              <SubmissionsPage
-                subs={subs.filter((s) => ["submitted", "reviewing", "returned"].includes(s.status))}
-                schoolById={schoolById}
-                currentUser={currentUser}
-                addToast={addToast}
-                onChanged={loadAll}
-                mode="review"
-              />
-            )}
-            {page === "approved" && (
-              <SubmissionsPage
-                subs={subs.filter((s) => ["approved", "archived"].includes(s.status))}
-                schoolById={schoolById}
-                currentUser={currentUser}
-                addToast={addToast}
-                onChanged={loadAll}
-                mode="approved"
-              />
-            )}
-            {page === "reports" && <ReportsPage schools={schools} />}
             {page === "excel" && <ExcelDataPage schools={schools} addToast={addToast} districtId={currentUser.districtId} />}
-            {page === "notifications" && (
-              <NotificationsPage schools={schools} currentUser={currentUser} addToast={addToast} />
-            )}
-            {page === "audit" && <AuditPage addToast={addToast} />}
             {page === "profile" && <ProfilePage currentUser={currentUser} district={district} schools={schools} />}
           </>
         )}
@@ -481,27 +404,23 @@ export default function DistrictApp({ currentUser, onLogout, darkMode, setDarkMo
 // =====================================================================
 //  DASHBOARD
 // =====================================================================
-function DashboardPage({ loading, schools, subs, onOpenSchool }) {
+function DashboardPage({ loading, schools, onOpenSchool }) {
   const stats = useMemo(() => {
     const total = schools.length;
     const withSched = schools.filter((s) => s.hasSchedule).length;
     const teachers = schools.reduce((a, s) => a + s.teachersCount, 0);
     const classes = schools.reduce((a, s) => a + s.classesCount, 0);
     const lessons = schools.reduce((a, s) => a + s.lessonsCount, 0);
-    const approved = subs.filter((s) => s.status === "approved").length;
-    const pending = subs.filter((s) => s.status === "submitted" || s.status === "reviewing").length;
-    return { total, withSched, without: total - withSched, teachers, classes, lessons, approved, pending };
-  }, [schools, subs]);
+    return { total, withSched, without: total - withSched, teachers, classes, lessons };
+  }, [schools]);
 
   const KPIS = [
-    { icon: "🏫", label: "Jami maktablar",           value: stats.total,    bg: "rgba(37,99,235,.13)" },
-    { icon: "📅", label: "Jadval yaratgan",           value: stats.withSched, bg: "rgba(16,185,129,.13)" },
-    { icon: "⏳", label: "Jadval yaratmagan",         value: stats.without,  bg: "rgba(245,158,11,.14)" },
-    { icon: "✅", label: "Tasdiqlangan jadvallar",    value: stats.approved, bg: "rgba(16,185,129,.13)" },
-    { icon: "⚠️", label: "Tekshiruv kutmoqda",        value: stats.pending,  bg: "rgba(239,68,68,.12)" },
-    { icon: "👨‍🏫", label: "Jami o'qituvchilar",       value: stats.teachers, bg: "rgba(99,102,241,.13)" },
-    { icon: "🎓", label: "Jami sinflar",              value: stats.classes,  bg: "rgba(14,165,233,.13)" },
-    { icon: "📚", label: "Haftalik jami darslar",     value: stats.lessons,  bg: "rgba(168,85,247,.13)" },
+    { icon: "🏫", label: "Jami maktablar",       value: stats.total,     bg: "rgba(37,99,235,.13)" },
+    { icon: "📅", label: "Jadval yaratgan",       value: stats.withSched, bg: "rgba(16,185,129,.13)" },
+    { icon: "⏳", label: "Jadval yaratmagan",     value: stats.without,   bg: "rgba(245,158,11,.14)" },
+    { icon: "👨‍🏫", label: "Jami o'qituvchilar",   value: stats.teachers,  bg: "rgba(99,102,241,.13)" },
+    { icon: "🎓", label: "Jami sinflar",          value: stats.classes,   bg: "rgba(14,165,233,.13)" },
+    { icon: "📚", label: "Haftalik jami darslar", value: stats.lessons,   bg: "rgba(168,85,247,.13)" },
   ];
 
   if (loading) {
@@ -569,11 +488,8 @@ function DashboardPage({ loading, schools, subs, onOpenSchool }) {
               <div style={{ fontSize: 13, marginBottom: 8 }}>
                 <b style={{ color: "#10b981" }}>●</b> Jadval yaratgan: <b>{stats.withSched}</b> ta maktab
               </div>
-              <div style={{ fontSize: 13, marginBottom: 8 }}>
-                <b style={{ color: "#f59e0b" }}>●</b> Jadval yaratmagan: <b>{stats.without}</b> ta maktab
-              </div>
               <div style={{ fontSize: 13 }}>
-                <b style={{ color: "#2563eb" }}>●</b> Tekshiruv kutmoqda: <b>{stats.pending}</b> ta jadval
+                <b style={{ color: "#f59e0b" }}>●</b> Jadval yaratmagan: <b>{stats.without}</b> ta maktab
               </div>
             </div>
           </div>
@@ -1066,380 +982,6 @@ function SchoolDetail({ school, onBack, addToast }) {
         )}
       </div>
     </>
-  );
-}
-
-// =====================================================================
-//  JADVAL TEKSHIRUVI / TASDIQLANGANLAR
-// =====================================================================
-function SubmissionsPage({ subs, schoolById, currentUser, addToast, onChanged, mode }) {
-  const [busy, setBusy] = useState(false);
-  const [commentFor, setCommentFor] = useState(null); // { sub, action }
-  const [comment, setComment] = useState("");
-
-  async function doReview(sub, status, note) {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await reviewSubmission(sub.id, status, note);
-      await logAction({
-        user: currentUser,
-        action: `submission.${status}`,
-        targetType: "submission",
-        targetId: sub.id,
-        details: { school_id: sub.school_id },
-      });
-      addToast(
-        status === "approved" ? "Jadval tasdiqlandi ✅"
-          : status === "returned" ? "Jadval qaytarildi"
-          : status === "reviewing" ? "Tekshiruvga olindi"
-          : "Arxivlandi",
-        status === "returned" ? "warning" : "success"
-      );
-      setCommentFor(null);
-      setComment("");
-      onChanged();
-    } catch (e) {
-      addToast(e.message, "warning");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (subs.length === 0) {
-    return (
-      <div className="da-card">
-        <Empty
-          icon={mode === "approved" ? "✅" : "⏳"}
-          title={mode === "approved" ? "Tasdiqlangan jadvallar yo'q" : "Tekshiruvda jadval yo'q"}
-          text={mode === "approved"
-            ? "Siz tasdiqlagan jadvallar shu yerda ko'rinadi."
-            : "Maktablar jadvalini tekshiruvga yuborganda shu yerda paydo bo'ladi. Maktab tomonidagi \"Tekshiruvga yuborish\" tugmasi 4-bosqichda qo'shiladi."}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div className="da-card">
-      {commentFor && (
-        <div style={{
-          marginBottom: 16, padding: 15, borderRadius: 14,
-          border: "1.5px solid var(--da-warning)", background: "rgba(245,158,11,.07)",
-        }}>
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>
-            💬 Izoh — {schoolById.get(commentFor.sub.school_id)?.schoolName || "maktab"}
-          </div>
-          <textarea
-            className="da-textarea"
-            rows={3}
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            placeholder="Maktabga izoh yozing: nimani to'g'irlash kerak..."
-          />
-          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className={`da-btn ${commentFor.action === "approved" ? "da-btn--success" : "da-btn--warning"}`}
-              disabled={busy}
-              onClick={() => doReview(commentFor.sub, commentFor.action, comment)}
-            >
-              {commentFor.action === "approved" ? "✅ Tasdiqlash" : "↩️ Qaytarish"}
-            </button>
-            <button type="button" className="da-btn da-btn--ghost" onClick={() => { setCommentFor(null); setComment(""); }}>
-              Bekor
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="da-tablewrap">
-        <table className="da-table">
-          <thead>
-            <tr>
-              <th>Maktab</th>
-              <th>Holat</th>
-              <th>Yuborilgan</th>
-              <th>Izohlar</th>
-              <th>Amallar</th>
-            </tr>
-          </thead>
-          <tbody>
-            {subs.map((sub) => {
-              const school = schoolById.get(sub.school_id);
-              return (
-                <tr key={sub.id}>
-                  <td><b>{school?.schoolName || "Noma'lum maktab"}</b></td>
-                  <td><StatusBadge status={sub.status} /></td>
-                  <td>{fmtDate(sub.submitted_at)}</td>
-                  <td style={{ maxWidth: 230 }}>
-                    {sub.school_comment && (
-                      <div style={{ fontSize: 12 }}>🏫 {sub.school_comment}</div>
-                    )}
-                    {sub.review_comment && (
-                      <div style={{ fontSize: 12, color: "var(--da-text-2)" }}>🏛 {sub.review_comment}</div>
-                    )}
-                    {!sub.school_comment && !sub.review_comment && "—"}
-                  </td>
-                  <td>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {mode === "review" && sub.status === "submitted" && (
-                        <button type="button" className="da-btn da-btn--primary da-btn--sm" disabled={busy}
-                          onClick={() => doReview(sub, "reviewing")}>
-                          🔍 Tekshiruvga olish
-                        </button>
-                      )}
-                      {mode === "review" && ["submitted", "reviewing"].includes(sub.status) && (
-                        <>
-                          <button type="button" className="da-btn da-btn--success da-btn--sm" disabled={busy}
-                            onClick={() => setCommentFor({ sub, action: "approved" })}>
-                            ✅ Tasdiqlash
-                          </button>
-                          <button type="button" className="da-btn da-btn--warning da-btn--sm" disabled={busy}
-                            onClick={() => setCommentFor({ sub, action: "returned" })}>
-                            ↩️ Qaytarish
-                          </button>
-                        </>
-                      )}
-                      {mode === "approved" && sub.status === "approved" && (
-                        <button type="button" className="da-btn da-btn--ghost da-btn--sm" disabled={busy}
-                          onClick={() => doReview(sub, "archived")}>
-                          🗄 Arxivlash
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-// =====================================================================
-//  BILDIRISHNOMALAR
-// =====================================================================
-function NotificationsPage({ schools, currentUser, addToast }) {
-  const [form, setForm] = useState({ recipientId: "", type: "info", title: "", body: "" });
-  const [toAll, setToAll] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState([]);
-  const [loadingSent, setLoadingSent] = useState(true);
-
-  async function loadSent() {
-    try {
-      setLoadingSent(true);
-      setSent(await fetchSentNotifications());
-    } catch {
-      /* jim — asosiy oqimni buzmaydi */
-    } finally {
-      setLoadingSent(false);
-    }
-  }
-
-  useEffect(() => { loadSent(); }, []);
-
-  async function handleSend() {
-    if (busy) return;
-    if (!toAll && !form.recipientId) return addToast("Qabul qiluvchi maktabni tanlang", "warning");
-    if (!form.title.trim()) return addToast("Sarlavha kiriting", "warning");
-
-    setBusy(true);
-    try {
-      const targets = toAll ? schools.map((s) => s.id) : [form.recipientId];
-      for (const rid of targets) {
-        await sendNotification({
-          recipientId: rid,
-          districtId: currentUser.districtId,
-          type: form.type,
-          title: form.title,
-          body: form.body,
-        });
-      }
-      await logAction({
-        user: currentUser,
-        action: "notification.send",
-        targetType: "notification",
-        details: { count: targets.length, type: form.type, title: form.title },
-      });
-      addToast(toAll ? `Bildirishnoma ${targets.length} ta maktabga yuborildi ✓` : "Bildirishnoma yuborildi ✓");
-      setForm({ recipientId: "", type: "info", title: "", body: "" });
-      setToAll(false);
-      loadSent();
-    } catch (e) {
-      addToast(e.message, "warning");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const schoolName = (id) => schools.find((s) => s.id === id)?.schoolName || "—";
-  const typeLabel = (v) => NOTIF_TYPES.find((t) => t.value === v)?.label || v;
-
-  return (
-    <>
-      <div className="da-card">
-        <div className="da-card__title">✉️ Yangi bildirishnoma yuborish</div>
-        <div className="da-formgrid">
-          <div>
-            <label className="da-label">Qabul qiluvchi</label>
-            <select
-              className="da-select"
-              value={toAll ? "__all__" : form.recipientId}
-              onChange={(e) => {
-                if (e.target.value === "__all__") { setToAll(true); }
-                else { setToAll(false); setForm({ ...form, recipientId: e.target.value }); }
-              }}
-            >
-              <option value="">— Maktabni tanlang —</option>
-              <option value="__all__">📢 Barcha maktablarga ({schools.length})</option>
-              {schools.map((s) => (
-                <option key={s.id} value={s.id}>{s.schoolName}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="da-label">Turi</label>
-            <select className="da-select" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-              {NOTIF_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </div>
-        </div>
-        <div style={{ marginBottom: 13 }}>
-          <label className="da-label">Sarlavha</label>
-          <input
-            className="da-input"
-            value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
-            placeholder="Masalan: Jadvalni 15-sentabrgacha yuboring"
-          />
-        </div>
-        <div style={{ marginBottom: 14 }}>
-          <label className="da-label">Matn</label>
-          <textarea
-            className="da-textarea"
-            rows={3}
-            value={form.body}
-            onChange={(e) => setForm({ ...form, body: e.target.value })}
-            placeholder="Bildirishnoma matni..."
-          />
-        </div>
-        <button type="button" className="da-btn da-btn--primary" onClick={handleSend} disabled={busy}>
-          {busy ? "Yuborilmoqda..." : "📨 Yuborish"}
-        </button>
-      </div>
-
-      <div className="da-card">
-        <div className="da-card__title">📤 Yuborilganlar tarixi</div>
-        {loadingSent ? (
-          <div className="da-skel" style={{ height: 120 }} />
-        ) : sent.length === 0 ? (
-          <Empty icon="📭" title="Hali bildirishnoma yuborilmagan" text="Yuborgan bildirishnomalaringiz shu yerda ko'rinadi." />
-        ) : (
-          <div className="da-tablewrap">
-            <table className="da-table">
-              <thead>
-                <tr><th>Maktab</th><th>Turi</th><th>Sarlavha</th><th>Yuborilgan</th><th>O'qildi</th></tr>
-              </thead>
-              <tbody>
-                {sent.map((n) => (
-                  <tr key={n.id}>
-                    <td><b>{schoolName(n.recipient_id)}</b></td>
-                    <td>{typeLabel(n.type)}</td>
-                    <td style={{ maxWidth: 260 }}>
-                      <b>{n.title}</b>
-                      {n.body && <div style={{ fontSize: 12, color: "var(--da-text-2)" }}>{n.body}</div>}
-                    </td>
-                    <td>{fmtDate(n.created_at)}</td>
-                    <td>
-                      {n.read_at
-                        ? <span className="da-badge" style={{ background: "#10b9811c", color: "#059669" }}>✓ O'qildi</span>
-                        : <span className="da-badge" style={{ background: "#64748b1c", color: "#64748b" }}>Kutilmoqda</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-// =====================================================================
-//  AUDIT LOG
-// =====================================================================
-function AuditPage({ addToast }) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setRows(await fetchAuditLog(200));
-      } catch (e) {
-        addToast(e.message, "warning");
-      } finally {
-        setLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const q = query.trim().toLowerCase();
-  const shown = q
-    ? rows.filter((r) =>
-        [r.actor_email, r.action, r.target_type, r.target_id]
-          .filter(Boolean)
-          .some((f) => String(f).toLowerCase().includes(q)))
-    : rows;
-
-  if (loading) return <div className="da-skel" style={{ height: 300 }} />;
-
-  return (
-    <div className="da-card">
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
-        <div className="da-search">
-          <span className="da-search__icon">🔍</span>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Email, amal yoki obyekt bo'yicha qidirish..." />
-        </div>
-        <div style={{ fontSize: 13, color: "var(--da-text-2)", fontWeight: 700 }}>
-          Jami: {shown.length} ta yozuv
-        </div>
-      </div>
-
-      {shown.length === 0 ? (
-        <Empty icon="🧾" title="Log yozuvlari yo'q" text="Panelda amallar bajarilgani sari shu yerda tarix yig'iladi: kim, qachon, nima qildi." />
-      ) : (
-        <div className="da-tablewrap">
-          <table className="da-table">
-            <thead>
-              <tr><th>Vaqt</th><th>Kim</th><th>Amal</th><th>Obyekt</th></tr>
-            </thead>
-            <tbody>
-              {shown.map((r) => (
-                <tr key={r.id}>
-                  <td style={{ whiteSpace: "nowrap" }}>{fmtDate(r.created_at)}</td>
-                  <td>
-                    <b>{r.actor_email || "—"}</b>
-                    {r.actor_role && <div style={{ fontSize: 11.5, color: "var(--da-text-2)" }}>{r.actor_role}</div>}
-                  </td>
-                  <td><span className="da-badge" style={{ background: "rgba(37,99,235,.1)", color: "#2563eb" }}>{r.action}</span></td>
-                  <td style={{ fontSize: 12.5, color: "var(--da-text-2)" }}>
-                    {r.target_type || "—"}{r.target_id ? ` · ${String(r.target_id).slice(0, 8)}…` : ""}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
   );
 }
 
