@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { DAYS } from "../utils/constants";
 import { isTeachingSlot } from "../utils/scheduleGenerator";
+import VacancyAnalysis, { computeVacancy } from "./VacancyAnalysis";
+import "./vacancy.css";
 
 function classIdsOf(lesson) {
   return Array.isArray(lesson.classIds) ? lesson.classIds : [lesson.classId].filter(Boolean);
@@ -14,7 +16,7 @@ export default function AnalyticsPage({
   classSubjects = {},
   timeslots = [],
 }) {
-  const [view, setView] = useState("classes"); // "classes" | "teachers"
+  const [view, setView] = useState("classes"); // "classes" | "teachers" | "vacancy"
   const [search, setSearch] = useState("");
   const [filterClass, setFilterClass] = useState("");
   const [filterTeacher, setFilterTeacher] = useState("");
@@ -27,6 +29,12 @@ export default function AnalyticsPage({
   const sortedTimeslots = useMemo(
     () => [...timeslots].sort((a, b) => Number(a.lessonNumber || 0) - Number(b.lessonNumber || 0)),
     [timeslots]
+  );
+
+  // 💼 Vakansiya tahlili — "Sinf fanlari"dagi biriktiruvlar asosida
+  const vac = useMemo(
+    () => computeVacancy({ classes, subjects, teachers, classSubjects }),
+    [classes, subjects, teachers, classSubjects]
   );
 
   const stats = useMemo(() => {
@@ -153,12 +161,14 @@ export default function AnalyticsPage({
   const th = { textAlign: "left", padding: "8px 10px", fontSize: 13, color: "var(--text-secondary)", borderBottom: "2px solid var(--card-border, #e5e7eb)" };
   const td = { padding: "8px 10px", fontSize: 14, borderBottom: "1px solid var(--card-border, #eef2f7)" };
 
+  const vacantCount = vac?.hasData ? vac.vacantTotal || 0 : 0;
+
   return (
     <div>
       <div className="page-header">
         <div>
           <div className="page-title">📈 Jadval tahlili</div>
-          <div className="page-subtitle">Sinflar va o'qituvchilar bo'yicha soatlar tahlili</div>
+          <div className="page-subtitle">Sinflar, o'qituvchilar va vakansiyalar bo'yicha tahlil</div>
         </div>
       </div>
 
@@ -169,17 +179,34 @@ export default function AnalyticsPage({
           { label: "O'qituvchilar", value: teachers.length, icon: "👩‍🏫" },
           { label: "Joylashgan soat", value: totals.placed, icon: "✅" },
           { label: "To'ldirish", value: `${fillPct}%`, icon: fillPct >= 100 ? "🟢" : "🟡" },
+          {
+            label: "Vakant soat",
+            value: vacantCount,
+            icon: "💼",
+            danger: vacantCount > 0,
+            onClick: () => setView("vacancy"),
+          },
         ].map((c) => (
-          <div key={c.label} style={{ ...card, marginBottom: 0, textAlign: "center" }}>
+          <div
+            key={c.label}
+            onClick={c.onClick}
+            style={{
+              ...card,
+              marginBottom: 0,
+              textAlign: "center",
+              cursor: c.onClick ? "pointer" : "default",
+              border: c.danger ? "1px solid rgba(239, 68, 68, 0.5)" : card.border,
+            }}
+          >
             <div style={{ fontSize: 22 }}>{c.icon}</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: "var(--accent, #4f46e5)" }}>{c.value}</div>
-            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>{c.label}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: c.danger ? "#dc2626" : "var(--accent, #4f46e5)" }}>{c.value}</div>
+            <div style={{ fontSize: 13, color: c.danger ? "#dc2626" : "var(--text-secondary)" }}>{c.label}</div>
           </div>
         ))}
       </div>
 
       {/* Ko'rinish tanlash */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <button
           className={`btn ${view === "classes" ? "btn-primary" : "btn-secondary"}`}
           style={{ fontSize: 17, fontWeight: 700, padding: "14px 28px", borderRadius: 12 }}
@@ -194,9 +221,34 @@ export default function AnalyticsPage({
         >
           👩‍🏫 O'qituvchilar bo'yicha
         </button>
+        <button
+          className={`btn ${view === "vacancy" ? "btn-primary" : "btn-secondary"}`}
+          style={{
+            fontSize: 17,
+            fontWeight: 700,
+            padding: "14px 28px",
+            borderRadius: 12,
+            border: view !== "vacancy" && vacantCount > 0 ? "1px solid rgba(239, 68, 68, 0.6)" : undefined,
+            color: view !== "vacancy" && vacantCount > 0 ? "#dc2626" : undefined,
+          }}
+          onClick={() => setView("vacancy")}
+        >
+          💼 Vakansiya{vacantCount > 0 ? ` (${vacantCount})` : ""}
+        </button>
       </div>
 
-      {/* Izlash / filtr */}
+      {/* 💼 VAKANSIYA KO'RINISHI */}
+      {view === "vacancy" && (
+        <VacancyAnalysis
+          classes={classes}
+          subjects={subjects}
+          teachers={teachers}
+          classSubjects={classSubjects}
+        />
+      )}
+
+      {/* Izlash / filtr — faqat sinf/o'qituvchi ko'rinishlarida */}
+      {view !== "vacancy" && (
       <div style={{ ...card, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
         <div style={{ flex: "1 1 200px", minWidth: 160 }}>
           <label className="form-label" style={{ fontSize: 12 }}>Izlash</label>
@@ -229,9 +281,10 @@ export default function AnalyticsPage({
           </button>
         )}
       </div>
+      )}
 
       {/* Tanlangan o'qituvchi haqida umumiy ma'lumot */}
-      {selectedTeacher && (
+      {view !== "vacancy" && selectedTeacher && (
         <div style={{ ...card, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
           <div style={{ fontWeight: 800, fontSize: 15 }}>👩‍🏫 {selectedTeacher.name}</div>
           <span className="badge badge-info">Jami: {stats.teacherTotal[filterTeacher] || 0} soat</span>
@@ -246,7 +299,7 @@ export default function AnalyticsPage({
       )}
 
       {/* Tanlangan o'qituvchining haftalik dars jadvali: qaysi kuni, nechinchi soat, qaysi sinf */}
-      {selectedTeacher && (() => {
+      {view !== "vacancy" && selectedTeacher && (() => {
         const teachingSlots = sortedTimeslots.filter((ts) => isTeachingSlot(ts));
         const slotsByNumber = {};
         teachingSlots.forEach((ts) => {

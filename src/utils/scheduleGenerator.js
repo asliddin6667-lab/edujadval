@@ -80,6 +80,11 @@ export function normalizeAssignment(item, subject) {
     levelGroupEnabled: Boolean(item.levelGroupEnabled),
     levelGroupKey: (item.levelGroupKey || "").trim(),
     isCore: Boolean(item.isCore),
+    // ——— ORA KUNDA (kun oralab): Du → Cho → Ju ———
+    // Yumshoq shart: generator bir fanning darslarini bir kun oralab qo'yishga
+    // harakat qiladi. 6 kunlik haftada 3 soatgacha to'liq oralab tushadi;
+    // undan ko'p bo'lsa iloji boricha kunlar uzoqlashtiriladi.
+    spacedDays: Boolean(item.spacedDays),
     allowDouble:
       item.allowDouble === undefined
         ? Boolean(subject?.allowDouble)
@@ -515,11 +520,13 @@ function attemptSchedule(
           levelGroupMap.set(key, {
             type: "levelGroup", subjectId: a.subjectId, levelGroupKey: a.levelGroupKey,
             classIds: [], blocks, levelGroups: a.levelGroups, isCore: a.isCore,
+            spacedDays: a.spacedDays,
             priority: a.weeklyHours + 40 + (a.allowDouble ? 15 : 0) + a.levelGroups.length,
           });
         }
         const group = levelGroupMap.get(key);
         if (a.isCore) group.isCore = true;
+        if (a.spacedDays) group.spacedDays = true;
         if (!group.classIds.includes(cls.id)) group.classIds.push(cls.id);
         if (a.levelGroups.length > group.levelGroups.length) group.levelGroups = a.levelGroups;
         if (blocks.length > group.blocks.length || a.weeklyHours > group.blocks.reduce((x, y) => x + y, 0)) group.blocks = blocks;
@@ -539,6 +546,7 @@ function attemptSchedule(
             type: "single", classIds: [cls.id], subjectId: a.subjectId,
             teacherId: a.teacherId, roomId: a.roomId,
             blockSize, priority: a.weeklyHours + (blockSize === 2 ? 10 : 0), isCore: a.isCore,
+            spacedDays: a.spacedDays,
           });
         });
         for (let k = 0; k < altHours; k++) {
@@ -550,6 +558,7 @@ function attemptSchedule(
             roomId: a.roomId || "", altRoomId: a.weekAltRoomId || "",
             roomIds: [a.roomId || "", a.weekAltRoomId || ""].filter(Boolean),
             blockSize: 1, priority: a.weeklyHours + 25, isCore: a.isCore,
+            spacedDays: a.spacedDays,
           });
         }
         return;
@@ -564,6 +573,7 @@ function attemptSchedule(
             teacherIds: [a.teacherId, a.swapTeacherId], roomIds: [a.roomId || "", a.swapRoomId || ""],
             groupName1: a.groupName1 || "1-guruh", groupName2: a.groupName2 || "2-guruh",
             blockSize: 2, priority: a.weeklyHours + 30, isCore: a.isCore,
+            spacedDays: a.spacedDays,
           });
         }
         return;
@@ -578,6 +588,7 @@ function attemptSchedule(
               { teacherId: a.teacherId2, roomId: a.roomId2 || "", groupPart: a.groupName2 || "2-guruh" },
             ],
             blockSize, priority: a.weeklyHours + (blockSize === 2 ? 10 : 0) + 15, isCore: a.isCore,
+            spacedDays: a.spacedDays,
           });
         });
       } else if (a.groupKey) {
@@ -586,11 +597,13 @@ function attemptSchedule(
           groupMap.set(key, {
             type: "group", subjectId: a.subjectId, teacherId: a.teacherId, roomId: a.roomId,
             groupKey: a.groupKey, blocks, classIds: [], isCore: a.isCore,
+            spacedDays: a.spacedDays,
             priority: a.weeklyHours + 20 + (a.allowDouble ? 10 : 0),
           });
         }
         const group = groupMap.get(key);
         if (a.isCore) group.isCore = true;
+        if (a.spacedDays) group.spacedDays = true;
         if (!group.classIds.includes(cls.id)) group.classIds.push(cls.id);
         if (blocks.length > group.blocks.length || a.weeklyHours > group.blocks.reduce((x, y) => x + y, 0)) group.blocks = blocks;
       } else {
@@ -598,6 +611,7 @@ function attemptSchedule(
           simpleRequests.push({
             type: "single", classIds: [cls.id], subjectId: a.subjectId, teacherId: a.teacherId,
             roomId: a.roomId, blockSize, priority: a.weeklyHours + (blockSize === 2 ? 10 : 0), isCore: a.isCore,
+            spacedDays: a.spacedDays,
           });
         });
       }
@@ -628,7 +642,9 @@ function attemptSchedule(
     const classOff = (r.classIds || []).some((cid) => classOffSet[cid] && classOffSet[cid].size) ? 5 : 0;
     const multiClass = (r.classIds?.length || 1) >= 2 ? 4 : 0;
     const multiTeacher = tids.length >= 2 ? tids.length * 12 : 0;
-    return maxTeacherLoad + (r.blockSize || 1) * 2 + teacherOff + classOff + multiClass + multiTeacher;
+    // Ora kunda darslar erta joylashtirilsa, kunlarni uzoqlashtirish osonroq
+    const spaced = r.spacedDays ? 7 : 0;
+    return maxTeacherLoad + (r.blockSize || 1) * 2 + teacherOff + classOff + multiClass + multiTeacher + spaced;
   }
   function isValidRequest(req) {
     const reqTeacherIds = (req.teacherIds || [req.teacherId]).filter(Boolean);
@@ -901,6 +917,20 @@ function attemptSchedule(
     }
     return penalty;
   }
+  // ——— ORA KUNDA jarimasi ———
+  // Fan "ora kunda" bo'lsa: o'sha kunda yoki qo'shni kunda (kecha/ertaga) shu fan
+  // allaqachon turgan bo'lsa jarima beriladi. Shunda Du → Cho → Ju tartibi hosil bo'ladi.
+  function spacedPenalty(req, d) {
+    if (!req.spacedDays || req.sIdx < 0) return 0;
+    let p = 0;
+    for (const ci of req.cIdxs) {
+      const same = classDailySubj[(ci * D + d) * S + req.sIdx];
+      if (same > 0) p += same * SPACED_W * 2;
+      if (d - 1 >= 0 && classDailySubj[(ci * D + (d - 1)) * S + req.sIdx] > 0) p += SPACED_W;
+      if (d + 1 < D && classDailySubj[(ci * D + (d + 1)) * S + req.sIdx] > 0) p += SPACED_W;
+    }
+    return p;
+  }
   function scoreCandidate(req, d, i) {
     const blockSize = req.blockSize;
     const adjacencyPenalty = blockSize === 1 && adjacentSame(d, i, blockSize, req) ? 1500 : 0;
@@ -920,8 +950,9 @@ function attemptSchedule(
     let teacherPenalty = 0;
     for (const ti of req.tIdxs) { teacherPenalty += teacherLoadArr[ti] + teacherDailyArr[ti * D + d]; }
     const coreEarlyPenalty = req.isCore ? i * 60 : 0;
+    const spacedPen = spacedPenalty(req, d);
     const randomPenalty = rng() * 5;
-    return compactPenalty + repeatPenalty + classLoadPenalty + teacherPenalty + spreadPenalty + coreEarlyPenalty + adjacencyPenalty + dayCapPenalty + randomPenalty;
+    return compactPenalty + repeatPenalty + classLoadPenalty + teacherPenalty + spreadPenalty + coreEarlyPenalty + adjacencyPenalty + dayCapPenalty + spacedPen + randomPenalty;
   }
   function bestCandidate(req, withForwardCheck) {
     let best = null;
@@ -935,6 +966,7 @@ function attemptSchedule(
     return best;
   }
   const DAYCAP_W = 800;
+  const SPACED_W = 900;
   const EJECT_DEFAULT = { maxDepth: 3, blockersRoot: 3, blockersDeep: 2, tryRoot: 14, tryDeep: 6 };
   const EJECT_INTENSE = { maxDepth: 4, blockersRoot: 5, blockersDeep: 3, tryRoot: 28, tryDeep: 10 };
   function collectBlockers(req, d, i, frozen, maxBlockers) {
@@ -1133,6 +1165,7 @@ function attemptSchedule(
         const fReq = {
           type: "single", classIds: [cls.id], subjectId: a.subjectId, teacherId: tid, roomId: a.roomId || "",
           tids: [tid], rids: a.roomId ? [a.roomId] : [], blockSize: 1, isCore: a.isCore, priority: 0, domain: null,
+          spacedDays: a.spacedDays,
           cIdxs: [cIdxOf.get(cls.id)].filter((x) => x !== undefined), tIdxs: [ti], sIdx: sIdxOf.get(a.subjectId) ?? -1,
           swapSIdx: -1, roomArrs: a.roomId ? [roomGrid(a.roomId)] : [], affected: [], diff: 0,
         };
@@ -1195,6 +1228,7 @@ function attemptSchedule(
   const BAL_W = 900;      // kunlik me'yordan chetlanish jarimasi
   const REPEAT_W = 45;   // bitta kunda bitta fanning takrorlanishi
   const ADJ_W = 260;     // yonma-yon bir xil fan (bir soatlik darslar uchun)
+  const SPACED_C_W = 600; // ora kunda: zichlashda qo'shni kun jarimasi
 
   // Umumiy narx. Oynalar soni alohida _lastGap ga yoziladi — oyna hech qachon
   // ko'paymasligi shart (balans yutug'i oyna evaziga bo'lmasin).
@@ -1248,6 +1282,24 @@ function attemptSchedule(
     return c;
   }
 
+  // Ora kunda: zichlash bosqichida ham qo'shni kunlar jarimalanadi.
+  // classDailySubj markBits bilan o'zgarmaydi — shuning uchun o'z hissasi
+  // hali ham eski kunda (oldD) hisoblanadi va o'sha yerda ayriladi.
+  function spacedCostAt(req, dd, oldD) {
+    if (!req.spacedDays || req.sIdx < 0) return 0;
+    let c = 0;
+    for (const ci of req.cIdxs) {
+      for (let k = -1; k <= 1; k++) {
+        const nd = dd + k;
+        if (nd < 0 || nd >= D) continue;
+        let n = classDailySubj[(ci * D + nd) * S + req.sIdx];
+        if (nd === oldD) n -= req.blockSize;
+        if (n > 0) c += k === 0 ? n * SPACED_C_W * 2 : SPACED_C_W;
+      }
+    }
+    return c;
+  }
+
   function compactPass(budgetMs) {
     if (!placements.length) return 0;
     const stop = Date.now() + Math.max(120, budgetMs);
@@ -1265,7 +1317,7 @@ function attemptSchedule(
         if (!req.domain || req.domain.length < 2) continue;
         const oldD = p.d;
         const oldI = p.startIdx;
-        const baseCost = compactCost(req.cIdxs) + repeatCostAt(req, oldD, oldD);
+        const baseCost = compactCost(req.cIdxs) + repeatCostAt(req, oldD, oldD) + spacedCostAt(req, oldD, oldD);
         const baseGap = _lastGap;
         markBits(req, oldD, oldI, 0);
         let bestD = -1;
@@ -1276,7 +1328,7 @@ function attemptSchedule(
           if (cand.d === oldD && cand.i === oldI) continue;
           if (!fitsAt(req, cand.d, cand.i)) continue;
           markBits(req, cand.d, cand.i, 1);
-          let c = compactCost(req.cIdxs) + repeatCostAt(req, cand.d, oldD);
+          let c = compactCost(req.cIdxs) + repeatCostAt(req, cand.d, oldD) + spacedCostAt(req, cand.d, oldD);
           const g = _lastGap;
           markBits(req, cand.d, cand.i, 0);
           if (req.blockSize === 1 && adjacentSame(cand.d, cand.i, 1, req)) c += ADJ_W;
@@ -1332,7 +1384,8 @@ function attemptSchedule(
     const union = [];
     for (const ci of rp.cIdxs) if (!seen.has(ci)) { seen.add(ci); union.push(ci); }
     for (const ci of rq.cIdxs) if (!seen.has(ci)) { seen.add(ci); union.push(ci); }
-    const base = compactCost(union) + repeatCostAt(rp, pd, pd) + repeatCostAt(rq, qd, qd);
+    const base = compactCost(union) + repeatCostAt(rp, pd, pd) + repeatCostAt(rq, qd, qd)
+      + spacedCostAt(rp, pd, pd) + spacedCostAt(rq, qd, qd);
     const baseGap = _lastGap;
     let afterGap = Infinity;
     markBits(rp, pd, pi, 0);
@@ -1344,7 +1397,8 @@ function attemptSchedule(
       if (fitsAt(rq, pd, pi)) {
         markBits(rq, pd, pi, 1);
         okFit = true;
-        after = compactCost(union) + repeatCostAt(rp, qd, pd) + repeatCostAt(rq, pd, qd);
+        after = compactCost(union) + repeatCostAt(rp, qd, pd) + repeatCostAt(rq, pd, qd)
+          + spacedCostAt(rp, qd, pd) + spacedCostAt(rq, pd, qd);
         afterGap = _lastGap;
         markBits(rq, pd, pi, 0);
       }
@@ -1615,7 +1669,8 @@ function buildValidationReport(ctx) {
 // darslar kun boshiga tortiladi, oynalar yopiladi, yuk kunlar bo'yicha tenglashadi.
 // Hech qanday dars o'chmaydi va yangi dars qo'shilmaydi — faqat o'rni almashadi.
 // Qo'lda qo'yilgan (manual) darslar joyidan qimirlamaydi.
-export function compactSchedule(classes = [], timeslots = [], lunchGroups = [], schedule = {}) {
+// classSubjects ixtiyoriy — berilsa, "ora kunda" fanlarining kun oralig'i saqlanadi.
+export function compactSchedule(classes = [], timeslots = [], lunchGroups = [], schedule = {}, classSubjects = {}) {
   const D = DAYS.length;
   const allTs = [...timeslots].sort((a, b) => Number(a.lessonNumber) - Number(b.lessonNumber));
   const teachingTs = allTs.filter(isTeachingSlot);
@@ -1629,6 +1684,14 @@ export function compactSchedule(classes = [], timeslots = [], lunchGroups = [], 
   for (let i = 0; i < T - 1; i++) {
     nextConsecutive[i] = allIdxById.get(teachingTs[i + 1].id) === allIdxById.get(teachingTs[i].id) + 1;
   }
+
+  // "Ora kunda" yoqilgan sinf+fan juftliklari
+  const spacedSet = new Set();
+  Object.entries(classSubjects || {}).forEach(([cid, list]) => {
+    (Array.isArray(list) ? list : []).forEach((a) => {
+      if (a && a.spacedDays && a.subjectId) spacedSet.add(`${cid}|${a.subjectId}`);
+    });
+  });
 
   // Sinf uchun yopiq kataklar: obed, smena (classIds), dam kuni
   const blocked = new Uint8Array(C * DT);
@@ -1693,8 +1756,12 @@ export function compactSchedule(classes = [], timeslots = [], lunchGroups = [], 
         const tSet = new Set();
         const rSet = new Set();
         let locked = false;
+        let spaced = false;
         for (const l of entries) {
-          classIdsOf(l).forEach((cid) => cSet.add(cid));
+          classIdsOf(l).forEach((cid) => {
+            cSet.add(cid);
+            if (spacedSet.has(`${cid}|${l.subjectId}`)) spaced = true;
+          });
           if (l.teacherId) tSet.add(l.teacherId);
           if (l.altTeacherId) tSet.add(l.altTeacherId);
           if (l.roomId) rSet.add(l.roomId);
@@ -1703,7 +1770,7 @@ export function compactSchedule(classes = [], timeslots = [], lunchGroups = [], 
         const cIdxs = [...cSet].map((cid) => cIdxOf.get(cid)).filter((x) => x !== undefined);
         if (!cIdxs.length) locked = true;
         units.push({
-          d, i, len, locked, entries,
+          d, i, len, locked, entries, spaced,
           parts: parts.map((x) => x.entries),
           cIdxs, tids: [...tSet], rids: [...rSet],
           subjectId: entries[0]?.subjectId || "",
@@ -1769,6 +1836,7 @@ export function compactSchedule(classes = [], timeslots = [], lunchGroups = [], 
 
   const BAL_W = 900;
   const REPEAT_W = 45;
+  const SPACED_W = 600;
 
   // Kunlik me'yor: sinfning haftalik soati ish kunlariga teng bo'linadi
   // (24 soat / 6 kun => kuniga aynan 4 ta).
@@ -1826,6 +1894,21 @@ export function compactSchedule(classes = [], timeslots = [], lunchGroups = [], 
     }
     return c;
   };
+  // Ora kunda: shu kun va qo'shni kunlarda shu fan bo'lsa jarima
+  const spacedAt = (u, dd, oldD) => {
+    if (!u.spaced) return 0;
+    let c = 0;
+    for (const ci of u.cIdxs) {
+      for (let k = -1; k <= 1; k++) {
+        const nd = dd + k;
+        if (nd < 0 || nd >= D) continue;
+        let n = subjDay.get(`${ci}|${nd}|${u.subjectId}`) || 0;
+        if (nd === oldD) n -= u.len;
+        if (n > 0) c += k === 0 ? n * SPACED_W * 2 : SPACED_W;
+      }
+    }
+    return c;
+  };
 
   const movable = units.filter((u) => !u.locked && u.domain.length > 1);
   const stop = Date.now() + 2500;
@@ -1835,7 +1918,7 @@ export function compactSchedule(classes = [], timeslots = [], lunchGroups = [], 
       if (Date.now() > stop) break;
       const oldD = u.d;
       const oldI = u.i;
-      const base = costOf(u.cIdxs) + repeatAt(u, oldD, oldD);
+      const base = costOf(u.cIdxs) + repeatAt(u, oldD, oldD) + spacedAt(u, oldD, oldD);
       const baseGap = _gap;
       setBits(u, oldD, oldI, 0);
       let bd = -1;
@@ -1846,7 +1929,7 @@ export function compactSchedule(classes = [], timeslots = [], lunchGroups = [], 
         if (cand.d === oldD && cand.i === oldI) continue;
         if (!fits(u, cand.d, cand.i)) continue;
         setBits(u, cand.d, cand.i, 1);
-        const c = costOf(u.cIdxs) + repeatAt(u, cand.d, oldD);
+        const c = costOf(u.cIdxs) + repeatAt(u, cand.d, oldD) + spacedAt(u, cand.d, oldD);
         const g = _gap;
         setBits(u, cand.d, cand.i, 0);
         if (g < bg || (g === bg && c < bc)) { bg = g; bc = c; bd = cand.d; bi = cand.i; }

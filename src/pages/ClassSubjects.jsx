@@ -60,6 +60,7 @@ function makeAssignment(subject, firstTeacherId = "") {
     levelGroups: makeLevelGroups(3),
     parallelEnabled: false,
     isCore: false,
+    spacedDays: false,
     weekAltEnabled: false,
     weekAltSubjectId: "",
     weekAltTeacherId: "",
@@ -433,6 +434,24 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
     toast(`${grade}-sinf ${subject?.name || "fan"} parallel darsga birlashtirildi ✓`, "success");
   }
 
+  // Barcha sinflarda shu fanni "ora kunda" qilib belgilash
+  function applySpacedToAllClasses(subjectId, value) {
+    const next = { ...classSubjects };
+    let count = 0;
+    Object.entries(next).forEach(([classId, list]) => {
+      next[classId] = (list || []).map(a => {
+        if (a.subjectId !== subjectId) return a;
+        count += 1;
+        return { ...a, spacedDays: value };
+      });
+    });
+    setClassSubjects(next);
+    const subject = subjectById(subjectId);
+    toast(value
+      ? `${subject?.name || "Fan"} — ${count} ta sinfda "ora kunda" yoqildi ✓`
+      : `${subject?.name || "Fan"} — ${count} ta sinfda "ora kunda" o'chirildi`, "success");
+  }
+
   useEffect(() => {
     const timer = setTimeout(() => normalizeAllSharedLevelGroups(false), 0);
     return () => clearTimeout(timer);
@@ -459,6 +478,7 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
     const chips = [];
     if (a.isCore) chips.push({ text: "⭐ Asosiy", bg: "#fef3c7", fg: "#92400e" });
     if (assignmentAllowsDouble(a, s)) chips.push({ text: "2 soat blok", bg: "#e0e7ff", fg: "#3730a3" });
+    if (a.spacedDays) chips.push({ text: "📆 Ora kunda", bg: "#ffedd5", fg: "#9a3412" });
     if (a.groupKey && !a.levelGroupEnabled) chips.push({ text: "🔁 Parallel", bg: "#d1fae5", fg: "#065f46" });
     if (a.splitEnabled && !a.levelGroupEnabled) chips.push({ text: a.swapEnabled ? "🔄 Almashinuv" : "✂️ 2 guruh", bg: "#fce7f3", fg: "#9d174d" });
     if (a.levelGroupEnabled) chips.push({ text: "🎯 Daraja guruhi", bg: "#dbeafe", fg: "#1e40af" });
@@ -503,7 +523,7 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
 
             <div style={{ display: "flex", flexDirection: "column", gap: 16, overflowY: "auto", minHeight: 0, height: "100%", paddingRight: 4 }}>
               <div className="alert alert-info">
-                ℹ️ <b>Parallel va daraja guruhlari</b>: Jismoniy tarbiya kabi fanlarda 3-A va 3-B bir vaqtda bitta ustoz bilan o'tishi uchun "Parallel" yoqing. Ingliz tili kabi fanlarda bir nechta sinf o'quvchilari darajaga bo'linib, bir nechta ustoz parallel kirishi uchun "Daraja guruhlari"ni yoqing. Har fanning ⚙️ tugmasidan qo'shimcha sozlamalarni oching.
+                ℹ️ <b>Parallel va daraja guruhlari</b>: Jismoniy tarbiya kabi fanlarda 3-A va 3-B bir vaqtda bitta ustoz bilan o'tishi uchun "Parallel" yoqing. Ingliz tili kabi fanlarda bir nechta sinf o'quvchilari darajaga bo'linib, bir nechta ustoz parallel kirishi uchun "Daraja guruhlari"ni yoqing. Fan kunlar oralab (Du → Cho → Ju) o'tishi kerak bo'lsa "Ora kunda"ni yoqing. Har fanning ⚙️ tugmasidan qo'shimcha sozlamalarni oching.
               </div>
 
               <div className="card"><div className="card-body">
@@ -548,6 +568,7 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
                     const sharedClassCount = a.levelGroupEnabled && a.levelGroupKey ? sameLevelGroupAssignments(s.id, a.levelGroupKey).length : 0;
                     const isOpen = openSettings === s.id;
                     const chips = checked ? activeChips(a, s) : [];
+                    const hoursNow = Number(a.weeklyHours || s.weeklyHours || 1);
                     return (
                       <div key={s.id} className={`cs-item ${checked ? "" : "cs-item-off"} ${isOpen ? "cs-item-open" : ""}`}>
                         {/* ——— ASOSIY QATOR ——— */}
@@ -590,7 +611,7 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
                               className={`btn btn-sm ${isOpen ? "btn-primary" : "btn-secondary"}`}
                               disabled={!checked}
                               onClick={() => setOpenSettings(isOpen ? null : s.id)}
-                              title="Qo'shimcha sozlamalar: asosiy fan, 2 soat blok, parallel, guruhga bo'lish, daraja guruhi"
+                              title="Qo'shimcha sozlamalar: asosiy fan, 2 soat blok, ora kunda, parallel, guruhga bo'lish, daraja guruhi"
                             >
                               ⚙️ Sozlamalar {isOpen ? "▲" : "▼"}
                             </button>
@@ -608,7 +629,11 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
                               </label>
                               <label className="cs-toggle">
                                 <input type="checkbox" checked={assignmentAllowsDouble(a, s)} onChange={e => updateAssignment(s.id, { allowDouble: e.target.checked })} />
-                                <span>2 soat blok {assignmentAllowsDouble(a, s) && <em style={{ color: "var(--text-muted)", fontWeight: 400 }}>({Number(a.weeklyHours || s.weeklyHours || 1)} soat → {Math.ceil(Number(a.weeklyHours || s.weeklyHours || 1) / 2)} blok)</em>}</span>
+                                <span>2 soat blok {assignmentAllowsDouble(a, s) && <em style={{ color: "var(--text-muted)", fontWeight: 400 }}>({hoursNow} soat → {Math.ceil(hoursNow / 2)} blok)</em>}</span>
+                              </label>
+                              <label className="cs-toggle" title="Dars kunlar oralab qo'yiladi: Dushanba → Chorshanba → Juma">
+                                <input type="checkbox" checked={Boolean(a.spacedDays)} onChange={e => updateAssignment(s.id, { spacedDays: e.target.checked })} />
+                                <span>📆 Ora kunda (kun oralab)</span>
                               </label>
                               <label className="cs-toggle" title="Parallel dars">
                                 <input type="checkbox" disabled={a.levelGroupEnabled || a.weekAltEnabled} checked={Boolean(a.groupKey)} onChange={e => updateAssignment(s.id, { parallelEnabled: e.target.checked, weekAltEnabled: false, groupKey: e.target.checked ? (a.groupKey || `${getGradeFromClassName(selectedClass?.name)}-sinf ${s.name} parallel — ${selectedClass?.name || ""}`) : "" })} />
@@ -627,6 +652,25 @@ export default function ClassSubjectsPage({ classes, subjects, teachers, rooms, 
                                 <span>⇄ Hafta almashinuvi (juft/toq)</span>
                               </label>
                             </div>
+
+                            {/* Ora kunda tafsilotlari */}
+                            {a.spacedDays && (
+                              <div className="cs-detail" style={{ background: "#fff7ed", border: "1px solid #fed7aa" }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: "#9a3412", marginBottom: 6 }}>📆 Ora kunda (kun oralab)</div>
+                                <div style={{ fontSize: 12, color: "#9a3412", lineHeight: 1.6 }}>
+                                  Bu fan ketma-ket kunlarda takrorlanmaydi: <b>Dushanba → Chorshanba → Juma</b> tartibida joylashadi.
+                                  {assignmentAllowsDouble(a, s) && <> "2 soat blok" yoqilgan — blok ichidagi 2 soat bitta kunda qoladi, oraliq bloklar orasida hisoblanadi.</>}
+                                </div>
+                                {hoursNow > 3 && !assignmentAllowsDouble(a, s) && (
+                                  <div style={{ marginTop: 8, background: "#fff", border: "1px solid #fed7aa", borderRadius: 8, padding: 8, fontSize: 12, color: "#9a3412" }}>
+                                    ⚠️ Haftalik soat <b>{hoursNow}</b> ta. 6 kunlik haftada to'liq oralab joylash faqat <b>3 soatgacha</b> mumkin. Generator qolgan soatlarni imkon qadar uzoq kunlarga tarqatadi.
+                                  </div>
+                                )}
+                                <div style={{ marginTop: 8 }}>
+                                  <button className="btn btn-secondary btn-sm" onClick={() => applySpacedToAllClasses(s.id, true)}>⚡ Barcha sinflarda shu fanga qo'llash</button>
+                                </div>
+                              </div>
+                            )}
 
                             {/* Parallel dars tafsilotlari */}
                             {a.groupKey && !a.levelGroupEnabled && !a.splitEnabled && (
