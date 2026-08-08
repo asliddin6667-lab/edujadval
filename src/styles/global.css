@@ -2276,3 +2276,241 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover { background: #3a4568; }
   .pretty-schedule-table td.pretty-day-cell { height: 1px; }
   .pretty-cell-stack > div > .pretty-lesson-card { justify-content: center; }
 }
+
+/* =====================================================================
+   SIDEBAR V3 — chiziqli SVG ikonkalar, gradient aktiv holat, profil karta
+   (Ikkinchi dizayn varianti. Logo bloki O'ZGARMAGAN — faylning eng
+   oxirida turishi shart, avvalgi qoidalarni bosib o'tadi.)
+   ===================================================================== */
+
+/* ——— Nav ikonkalar: emoji o'rniga SVG ——— */
+.nav-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 24px !important;
+  min-width: 24px !important;
+  height: 24px !important;
+  color: #8b9cf9;
+  transition: color .22s ease !important;
+}
+.nav-icon svg {
+  width: 21px;
+  height: 21px;
+  display: block;
+}
+
+/* ——— Nav elementlar: ixchamroq, rasm nisbatlariga mos ——— */
+.nav-item {
+  gap: 13px !important;
+  min-height: 46px !important;
+  padding: 11px 14px !important;
+  margin-bottom: 5px !important;
+  border-radius: 13px !important;
+  font-size: 15.5px !important;
+  color: #b4bdd4 !important;
+}
+.nav-item::after { border-radius: 12px; }
+.nav-label {
+  font-size: 15.5px !important;
+  font-weight: 650 !important;
+  letter-spacing: .1px;
+}
+
+/* ——— Hover: yumshoq quti (gradientsiz), aktiv: to'liq gradient ——— */
+.nav-item:hover::before,
+.nav-item:hover::after { opacity: 0; }
+.nav-item:hover {
+  background: rgba(99,102,241,.10) !important;
+  color: #e6eaf7 !important;
+  transform: none !important;
+  box-shadow: inset 0 0 0 1px rgba(148,163,184,.16) !important;
+}
+.nav-item:hover .nav-icon { transform: none; color: #a5b3ff; }
+
+.nav-item.active::before,
+.nav-item.active::after { opacity: 1; }
+.nav-item.active {
+  background: transparent !important;
+  color: #ffffff !important;
+  transform: none !important;
+  box-shadow: 0 10px 26px rgba(99,102,241,.36) !important;
+}
+.nav-item.active .nav-icon { transform: none; color: #ffffff; }
+.nav-item.active .nav-icon svg,
+.nav-item:hover .nav-icon svg { transform: none; }
+
+/* ——— Bo'lim sarlavhalari: ajratuvchi chiziq bilan ——— */
+.nav-section-title {
+  margin: 16px 0 8px !important;
+  padding: 14px 12px 0 !important;
+  border-top: 1px solid rgba(148,163,184,.12);
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: 2.4px !important;
+  color: #5d6883 !important;
+}
+.nav-section-row {
+  margin-top: 4px;
+  padding-top: 10px;
+  padding-bottom: 4px;
+  border-top: 1px solid rgba(148,163,184,.12);
+}
+.nav-section-row .nav-section-title {
+  border-top: none;
+  margin: 0 !important;
+  padding: 0 0 0 12px !important;
+}
+
+/* ——— «Yig'ish» tugmasi: shaffof to'q pill ——— */
+.sidebar-toggle {
+  background: rgba(148,163,184,.08);
+  border: 1px solid rgba(148,163,184,.15);
+  color: #a9b2c9;
+  border-radius: 12px;
+  font-size: 14.5px;
+}
+.sidebar-toggle:hover {
+  background: rgba(148,163,184,.15);
+  filter: none;
+  color: #dbe1f0;
+}
+.sidebar-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+.sidebar-toggle-icon svg { width: 18px; height: 18px; }
+
+/* ——— Kun/Tun almashtirgichi: kichik to'q toggle (rasmga mos) ——— */
+.theme-switch {
+  width: 46px;
+  height: 24px;
+  background: #1c2237;
+  box-shadow: inset 0 0 0 1px rgba(148,163,184,.22);
+}
+.theme-switch.night {
+  background: #151a2c;
+  box-shadow: inset 0 0 0 1px rgba(148,163,184,.18);
+}
+.theme-switch-knob {
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+}
+.theme-switch.night .theme-switch-knob { transform: translateX(22px); }
+.theme-switch.night:active .theme-switch-knob { transform: translateX(22px) scale(.9); }
+.theme-switch-star { display: none; }
+
+/* ——— Footer: profil karta (avatar + ism + Chiqish) ——— */
+.sidebar-footer {
+  padding: 14px 14px 16px !important;
+  border-top: 1px solid rgba(255,255,255,.08) !important;
+}
+
+.sidebar-profile-card {
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(148,163,184,.07);
+  border: 1px solid rgba(148,163,184,.15);
+}
+
+.sidebar-profile-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.sidebar-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 15px;
+  font-weight: 900;
+  color: #ffffff;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #a855f7 100%);
+  box-shadow: 0 6px 16px rgba(99,102,241,.4);
+}
+
+.sidebar-profile-info { min-width: 0; }
+
+.sidebar-user-name {
+  margin-bottom: 2px !important;
+  font-size: 14px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-user-role {
+  margin-bottom: 0 !important;
+  font-size: 12px !important;
+}
+
+.sidebar-logout {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  width: 100%;
+  background: transparent !important;
+  border: 1px solid rgba(148,163,184,.28) !important;
+  color: #e6eaf7 !important;
+  border-radius: 12px !important;
+  padding: 10px 14px !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+}
+.sidebar-logout:hover {
+  background: rgba(148,163,184,.12) !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+.sidebar-logout-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+.sidebar-logout-icon svg { width: 17px; height: 17px; }
+
+.sidebar-version {
+  text-align: center;
+  margin-top: 12px !important;
+}
+
+/* ——— Yig'ilgan (collapsed) rejimda profil karta ——— */
+.sidebar.collapsed .sidebar-profile-card {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.sidebar.collapsed .sidebar-profile-top { margin-bottom: 0; gap: 0; }
+.sidebar.collapsed .sidebar-avatar {
+  width: 36px;
+  height: 36px;
+  font-size: 12px;
+}
+.sidebar.collapsed .sidebar-logout {
+  font-size: 0 !important;
+  padding: 9px 0 !important;
+  gap: 0 !important;
+}
+.sidebar.collapsed .sidebar-logout::before { content: none !important; }
+.sidebar.collapsed .sidebar-logout-text { display: none !important; }
+.sidebar.collapsed .sidebar-logout-icon svg { width: 18px; height: 18px; }
+
+/* ——— Mobil (max-width 900px): footer yashiringan, faqat ikonkalar ——— */
+@media (max-width: 900px) {
+  .sidebar-toggle-label { display: none; }
+}
